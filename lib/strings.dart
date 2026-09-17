@@ -14,6 +14,7 @@ abstract final class NotesStrings {
   static String noteCount(int count) => '$count 篇笔记';
 
   static const String searchHint = '搜索笔记';
+  static const String newNote = '新建笔记';
   static const String rescan = '重新扫描笔记文件夹';
   static const String selectMode = '选择笔记';
 

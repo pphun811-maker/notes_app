@@ -62,21 +62,50 @@ abstract final class NotesMetrics {
   static const double designHeight = 900;
 
   /// Top bar icon centres, as an inset from the right edge: x = width - [iconInset].
-  static const double searchIconInset = 84;
+  ///
+  /// The three icons are evenly spaced 50dp apart, right to left: more, search,
+  /// new note. The "+" replaced the old floating button, which the user removed
+  /// because a bottom-pinned disc looked stranded once the card got short.
   static const double moreIconInset = 34;
-  static const double barIconCenterY = 48;
+  static const double searchIconInset = 84;
+  static const double newNoteIconInset = 134;
+
+  /// The bar's height and the icon centres inside it.
+  ///
+  /// **This bar is deliberately much tighter than the 412 x 900 mock-up.** The
+  /// mock-up put the title's top at y = 82 and the card at y = 168 on a canvas
+  /// that had no status bar; on the real phone that left a large dead band under
+  /// the status bar, which the user rejected. The title now sits 27dp below the
+  /// top of the content area and the card follows the note count closely, so the
+  /// header reads as one block stuck to the status bar.
+  static const double barHeight = 72;
+  static const double barIconCenterY = 27;
 
   /// Header text, as insets from the left edge.
   static const double headerLeft = 24;
-  static const double titleTop = 82;
+  static const double titleTop = 18;
   static const double titleSize = 31;
-  static const double countTop = 130;
+  static const double countTop = 54;
   static const double countSize = 14;
 
   /// The grouped card.
+  ///
+  /// [cardTop] is the card's top edge measured **from the top of the page**.
+  ///
+  /// It used to be applied as "this far below the bottom of the header", which is
+  /// what opened the dead band under the top bar that the user rejected: the bar
+  /// plus its inset already comes to about 112dp, so the card landed near 344dp.
+  /// The card now hangs directly off the header, separated only by [cardGap].
   static const double cardTop = 168;
+
+  /// The sliver of page background between the header block and the card.
+  ///
+  /// This is what makes the card look "stuck to" the top bar rather than floating
+  /// in the middle of the screen. Keep it small.
+  static const double cardGap = 14;
+
   static const double cardMargin = 16;
-  static const double cardRadius = 24;
+  static const double cardRadius = 18;
   static const double cardPaddingTop = 4;
   static const double cardPaddingBottom = 12;
   static const double shadowOffsetY = 5;
@@ -85,21 +114,22 @@ abstract final class NotesMetrics {
 
   /// One note row.
   ///
-  /// This is 83, not 84, on purpose. The design's row *pitch* is 84dp, and the
-  /// 1dp hairline is drawn on the last pixel of that pitch rather than in
-  /// addition to it - `make_mockup_v5.py` puts the lines at `y + n*84 - 0.5`.
-  /// Since the separator is a sibling of the row in a `ListView.separated`, the
-  /// arrangement only works out to an 84dp pitch if the row itself is 83.
-  static const double rowHeight = 83;
+  /// The row is 74 and the hairline is 1, giving the 75dp pitch the tightened
+  /// layout uses. (The original 412 x 900 mock-up used an 84dp pitch; the user
+  /// asked for shorter, denser rows.)
+  static const double rowHeight = 74;
 
-  /// The horizontal text inset **from the screen edge**, as the design states it.
+  /// The horizontal text inset **from the screen edge**.
   ///
-  /// The design quotes these as absolute positions on its 412dp canvas
+  /// The original design quoted these as absolute positions on its 412dp canvas
   /// (`c.text(TEXT_X, ...)` with `TEXT_X = 34`), and they are confirmed by the
   /// multi-select mock-up, which puts the tick ring's centre at x = 48 and the
-  /// text at x = 74. Subtracting the card's 16dp margin gives the inset *inside*
-  /// the card, which is what the widgets actually need.
-  static const double rowTextLeft = 34;
+  /// text at x = 74. Subtracting the card's margin gives the inset *inside* the
+  /// card, which is what the widgets actually need.
+  ///
+  /// The user asked for the hairlines to run wider than the text, so the row text
+  /// was pulled in to 30 while the divider keeps its own, longer span.
+  static const double rowTextLeft = 30;
   static const double rowTextLeftSelected = 74;
   static const double selectionRingCenterX = 48;
 
@@ -110,21 +140,21 @@ abstract final class NotesMetrics {
   static const double selectionRingCenterXInCard =
       selectionRingCenterX - cardMargin;
 
-  static const double rowTitleTop = 20;
+  /// Where the hairline starts and ends, again as insets from the screen edge.
+  ///
+  /// Wider than the text on purpose: 24dp in from each side, so the fade has
+  /// somewhere to run.
+  static const double dividerInset = 24;
+  static const double dividerInsetInCard = dividerInset - cardMargin;
+
+  static const double rowTitleTop = 16;
   static const double rowTitleSize = 17;
-  static const double rowSubtitleTop = 48;
+  static const double rowSubtitleTop = 38;
   static const double rowSubtitleSize = 13.5;
   static const double dividerHeight = 1;
 
   /// How much of each end of a divider fades out: transparent -> grey -> grey -> transparent.
   static const double dividerFade = 0.22;
-
-  /// The round "new note" button.
-  static const double fabDiameter = 64;
-  static const double fabRight = 23;
-  static const double fabBottom = 26;
-  static const double fabPlusArm = 12;
-  static const double fabPlusStroke = 3.6;
 
   /// How far the list is pulled down while refreshing.
   static const double pullToRefreshPull = 66;

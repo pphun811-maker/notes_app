@@ -12,6 +12,9 @@ import '../design.dart';
 /// gradient reproduces the ramp exactly - provided the four stops below are left
 /// alone. Do not "prettify" them into a two-stop gradient with a smooth curve;
 /// that would visibly shorten and darken the fade at both ends.
+///
+/// The line's own span is set by the caller via [left]/[right]; it runs wider
+/// than the row text, which is what the user asked for.
 class FadingDivider extends StatelessWidget {
   const FadingDivider({super.key, this.left = 0, this.right = 0});
 
@@ -192,95 +195,4 @@ class _SelectionRing extends StatelessWidget {
           : null,
     );
   }
-}
-
-/// The round amber "new note" button in the bottom-right corner.
-///
-/// The user rejected a rounded square and asked for a white plus, so neither the
-/// shape nor the icon colour is a theme default.
-class NewNoteButton extends StatelessWidget {
-  const NewNoteButton({super.key, required this.onPressed});
-
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final NotesPalette palette = NotesPalette.of(context);
-    return SizedBox(
-      width: NotesMetrics.fabDiameter,
-      height: NotesMetrics.fabDiameter,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: palette.amber,
-          boxShadow: <BoxShadow>[
-            BoxShadow(
-              color: palette.amber.withAlpha(62),
-              offset: const Offset(0, 6),
-              blurRadius: 12,
-            ),
-          ],
-        ),
-        child: Material(
-          color: Colors.transparent,
-          shape: const CircleBorder(),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: onPressed,
-            child: const Center(
-              child: _PlusGlyph(
-                arm: NotesMetrics.fabPlusArm,
-                stroke: NotesMetrics.fabPlusStroke,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// A plus drawn to the designed arm length and stroke width.
-class _PlusGlyph extends StatelessWidget {
-  const _PlusGlyph({required this.arm, required this.stroke});
-
-  final double arm;
-  final double stroke;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: arm * 2 + stroke,
-      height: arm * 2 + stroke,
-      child: CustomPaint(painter: _PlusPainter(stroke: stroke)),
-    );
-  }
-}
-
-class _PlusPainter extends CustomPainter {
-  const _PlusPainter({required this.stroke});
-
-  final double stroke;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final Paint paint = Paint()
-      ..color = Colors.white
-      ..strokeWidth = stroke
-      ..strokeCap = StrokeCap.round;
-    final Offset centre = size.center(Offset.zero);
-    canvas.drawLine(
-      Offset(0, centre.dy),
-      Offset(size.width, centre.dy),
-      paint,
-    );
-    canvas.drawLine(
-      Offset(centre.dx, 0),
-      Offset(centre.dx, size.height),
-      paint,
-    );
-  }
-
-  @override
-  bool shouldRepaint(_PlusPainter oldDelegate) => oldDelegate.stroke != stroke;
 }

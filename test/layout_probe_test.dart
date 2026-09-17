@@ -82,8 +82,9 @@ void main() {
     final Finder header = find.byKey(const ValueKey<String>('notes-header'));
     expect(header, findsOneWidget, reason: 'the header should be on screen');
 
-    final double headerTop = tester.getRect(header).top;
-    final double headerHeight = tester.getRect(header).height;
+    final Rect headerRect = tester.getRect(header);
+    final double headerTop = headerRect.top;
+    final double headerHeight = headerRect.height;
 
     // Take the rows in the order they are actually rendered rather than assuming
     // which note lands first: the store sorts by modified time, and the three
@@ -118,27 +119,31 @@ void main() {
       debugPrint('row top=${r.top.toStringAsFixed(1)} h=${r.height.toStringAsFixed(1)}');
     }
 
-    // Row rhythm: one row is 84dp, title-row to title-row.
-    expect(rows[1].top - rows[0].top, closeTo(84, 0.01),
-        reason: 'row pitch must be 84dp (design 5.4)');
-    expect(rows[2].top - rows[1].top, closeTo(84, 0.01),
-        reason: 'row pitch must be 84dp (design 5.4)');
+    // Row rhythm: the tightened pitch the user asked for.
+    expect(rows[1].top - rows[0].top,
+        closeTo(NotesMetrics.rowHeight + NotesMetrics.dividerHeight, 0.01),
+        reason: 'row pitch = row + hairline');
+    expect(rows[2].top - rows[1].top,
+        closeTo(NotesMetrics.rowHeight + NotesMetrics.dividerHeight, 0.01),
+        reason: 'row pitch = row + hairline');
 
-    // Title top is 20dp into the row; the subtitle 28dp below the title.
-    expect(titleInFirstRow.top - rows[0].top, closeTo(20, 0.01),
-        reason: 'title sits 20dp into the row');
-    expect(subtitleInFirstRow.top - titleInFirstRow.top, closeTo(28, 0.01),
-        reason: 'subtitle is 28dp below the title (row 48 - title 20)');
+    // Title top is 16dp into the row; the subtitle 22dp below the title.
+    expect(titleInFirstRow.top - rows[0].top,
+        closeTo(NotesMetrics.rowTitleTop, 0.01),
+        reason: 'the title sits 16dp into the row');
+    expect(subtitleInFirstRow.top - titleInFirstRow.top,
+        closeTo(NotesMetrics.rowSubtitleTop - NotesMetrics.rowTitleTop, 0.01),
+        reason: 'title-to-subtitle spacing was tightened from 28 to 22dp');
 
-    // Text is inset 34dp from the screen edge, measured absolutely: the design
-    // quotes `TEXT_X = 34` on its 412dp canvas and the mock-up really does put
-    // the first ink at 34.67dp, with the card already at 16dp.
+    // Text is inset 30dp from the screen edge, measured absolutely: the design
+    // quoted `TEXT_X = 34` on its 412dp canvas, and the user pulled it in so the
+    // hairlines can run wider than the text.
     expect(titleInFirstRow.left, closeTo(NotesMetrics.rowTextLeft, 0.01),
-        reason: 'row text starts 34dp from the screen edge (design 5.4)');
+        reason: 'row text starts 30dp from the screen edge');
     expect(inner.left, closeTo(NotesMetrics.cardMargin, 0.01),
         reason: 'the card sits at the 16dp page margin');
 
-    // The hairline fades out over the same 34dp..W-34dp span as the text.
+    // The hairline runs wider than the text and fades out 24dp in from each edge.
     //
     // Measure the box that actually paints the line, not the divider widget:
     // a `RenderPadding` is itself full-width and only insets its *child*, so
@@ -150,12 +155,13 @@ void main() {
         )
         .first;
     final Rect divider = tester.getRect(hairline);
-    expect(divider.left, closeTo(NotesMetrics.rowTextLeft, 0.01),
-        reason: 'the separator starts where the text does (design 5.4)');
+    expect(divider.left, closeTo(NotesMetrics.dividerInset, 0.01),
+        reason: 'the separator starts 24dp from the screen edge');
     expect(divider.height, closeTo(1, 0.01), reason: 'the hairline is 1dp');
     expect(divider.width,
-        closeTo(354.3 - 2 * NotesMetrics.rowTextLeft, 0.05),
-        reason: 'the separator ends at W - 34dp; the slack is 1240/3.5 rounding');
+        closeTo(354.3 - 2 * NotesMetrics.dividerInset, 0.05),
+        reason: 'the separator ends 24dp from the right edge; '
+            'the slack is 1240/3.5 rounding');
 
     // Three rows, two 1dp hairlines, and nothing else: the card's own 4dp/12dp
     // of padding lives on the wrapper, not on this list.
@@ -163,20 +169,51 @@ void main() {
         closeTo(3 * NotesMetrics.rowHeight + 2 * NotesMetrics.dividerHeight, 0.01),
         reason: 'the shrink-wrapped list must not add its own padding');
 
-    // The card starts 168dp below the header, per the design's card top.
-    // Measure the card itself, not the list inside it: the card adds 4dp of top
-    // padding, which would otherwise be mistaken for part of the gap.
-    expect(card.top - headerTop - headerHeight, closeTo(168, 0.01),
-        reason: 'card top must be 168dp below the header (design 5.4)');
+    // The card's top edge is a fixed distance from the top of the page, NOT from
+    // the bottom of the header. Measuring it absolutely is the whole point: the
+    // original bug was reading `cardTop` as "below the header", which pushed it a
+    // full header-height down and opened the dead band under the bar.
+    // The three top-bar icons: "+", search, more. They replaced the floating
+    // button, so their spacing is now the only way to reach "new note".
+    final Rect plus = tester.getRect(find.byIcon(Icons.add));
+    final Rect magnifier = tester.getRect(find.byIcon(Icons.search));
+    final Rect more = tester.getRect(find.byIcon(Icons.more_horiz));
+    for (final Rect r in <Rect>[plus, magnifier, more]) {
+      expect(r.width, closeTo(24, 0.01), reason: 'all three icons are 24dp');
+      expect(r.height, closeTo(24, 0.01), reason: 'all three icons are 24dp');
+    }
+    // Right to left: more, search, "+", evenly spaced 50dp apart.
+    expect(more.center.dx - magnifier.center.dx, closeTo(50, 0.01),
+        reason: 'more and search are 50dp apart');
+    expect(magnifier.center.dx - plus.center.dx, closeTo(50, 0.01),
+        reason: 'search and the new-note "+" are 50dp apart');
+    // To the right of the title, so the "笔记" heading is never overlapped.
+    expect(plus.left, greaterThan(NotesMetrics.headerLeft + 62.5),
+        reason: 'the "+" clears the 31dp title');
+    // The "+" shares the row with the other two icons.
+    expect((plus.center.dy - magnifier.center.dy).abs(), lessThan(0.01),
+        reason: 'the "+" sits on the same line as the search icon');
+
+    // The card hangs directly off the header: a small sliver of page background,
+    // not a whole screen. This is the relationship the user asked for, and it is
+    // the one the original code got wrong by treating `cardTop` as an offset
+    // below the header.
+    expect(card.top - (headerTop + headerHeight),
+        closeTo(NotesMetrics.cardGap, 0.01),
+        reason: 'the card must sit just below the top bar, not mid-screen');
+    expect(card.top, lessThan(200),
+        reason: 'the card must stay near the top of the screen');
     expect(card.height,
         closeTo(3 * NotesMetrics.rowHeight +
             2 * NotesMetrics.dividerHeight +
             NotesMetrics.cardPaddingTop +
             NotesMetrics.cardPaddingBottom, 0.01),
-        reason: 'card height = rows + hairlines + 4dp/12dp padding (design 5.4)');
+        reason: 'card height = rows + hairlines + 4dp/12dp padding');
 
-    // The header block itself is the designed 96dp plus the status bar inset.
-    expect(headerHeight, closeTo(96 + 139 / 3.5, 0.01),
-        reason: 'header is 96dp tall plus the status-bar inset');
+    // The bar is the tightened height plus the status-bar inset.
+    expect(headerHeight, closeTo(NotesMetrics.barHeight + 139 / 3.5, 0.01),
+        reason: 'the bar is 72dp tall plus the status-bar inset');
+    expect(headerHeight, lessThan(200),
+        reason: 'the header must stay compact - the user rejected the tall one');
   });
 }

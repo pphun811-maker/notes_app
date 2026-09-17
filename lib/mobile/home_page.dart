@@ -353,10 +353,7 @@ class _NotesHomePageState extends State<NotesHomePage>
           child: ListView(
             padding: EdgeInsets.only(
               top: insets.top,
-              bottom: safeBottom +
-                  NotesMetrics.fabDiameter +
-                  NotesMetrics.fabBottom +
-                  16,
+              bottom: safeBottom + 32,
             ),
             physics: const AlwaysScrollableScrollPhysics(),
             children: <Widget>[
@@ -382,6 +379,7 @@ class _NotesHomePageState extends State<NotesHomePage>
                 _Header(
                   key: const ValueKey<String>('notes-header'),
                   count: _notes.length,
+                  onCreate: _createNote,
                   onSearch: _openSearch,
                   onRescan: _load,
                   onSelect: () => setState(() => _selection = <String>{}),
@@ -390,12 +388,6 @@ class _NotesHomePageState extends State<NotesHomePage>
             ],
           ),
         ),
-        if (selection == null)
-          Positioned(
-            right: NotesMetrics.fabRight,
-            bottom: safeBottom + NotesMetrics.fabBottom,
-            child: NewNoteButton(onPressed: _createNote),
-          ),
       ],
     );
   }
@@ -426,8 +418,15 @@ class _NotesHomePageState extends State<NotesHomePage>
     }
 
     final bool selecting = selection != null;
+    // The card hangs directly off the header, separated only by a small sliver of
+    // page background.
+    //
+    // This is a gap, not an absolute position: applying an absolute `cardTop` here
+    // double-counted the header (which already occupies the top of the scroll
+    // content) and pushed the card a further header-height down - the dead band
+    // under the top bar that the user rejected.
     return Padding(
-      padding: const EdgeInsets.only(top: NotesMetrics.cardTop),
+      padding: const EdgeInsets.only(top: NotesMetrics.cardGap),
       child: NoteCard(
         child: Padding(
           padding: const EdgeInsets.only(
@@ -441,8 +440,8 @@ class _NotesHomePageState extends State<NotesHomePage>
             itemCount: notes.length,
             separatorBuilder: (BuildContext context, int index) =>
                 const FadingDivider(
-              left: NotesMetrics.rowTextLeftInCard,
-              right: NotesMetrics.rowTextLeftInCard,
+              left: NotesMetrics.dividerInsetInCard,
+              right: NotesMetrics.dividerInsetInCard,
             ),
             itemBuilder: (BuildContext context, int index) {
               final Note note = notes[index];
@@ -470,16 +469,16 @@ class _Header extends StatelessWidget {
   const _Header({
     super.key,
     required this.count,
+    required this.onCreate,
     required this.onSearch,
     required this.onRescan,
     required this.onSelect,
   });
 
-  /// The bar is 96dp tall, which puts the title's baseline at y = 82 and the
-  /// icon centres at y = 48 in the 412 x 900 design space.
-  static const double _barHeight = 96;
-
+  /// The bar is [NotesMetrics.barHeight] tall, which puts the icon centres 27dp
+  /// below the top of the content area and the title's baseline just under them.
   final int count;
+  final VoidCallback onCreate;
   final VoidCallback onSearch;
   final VoidCallback onRescan;
   final VoidCallback onSelect;
@@ -488,7 +487,7 @@ class _Header extends StatelessWidget {
   Widget build(BuildContext context) {
     final NotesPalette palette = NotesPalette.of(context);
     return SizedBox(
-      height: _barHeight + MediaQuery.paddingOf(context).top,
+      height: NotesMetrics.barHeight + MediaQuery.paddingOf(context).top,
       child: Padding(
         padding: EdgeInsets.only(top: MediaQuery.paddingOf(context).top),
         child: Stack(
@@ -496,7 +495,7 @@ class _Header extends StatelessWidget {
           children: <Widget>[
             Positioned(
               left: NotesMetrics.headerLeft,
-              bottom: 8,
+              top: NotesMetrics.titleTop,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
@@ -510,7 +509,7 @@ class _Header extends StatelessWidget {
                       color: palette.ink,
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 4),
                   Text(
                     NotesStrings.noteCount(count),
                     style: TextStyle(
@@ -520,6 +519,13 @@ class _Header extends StatelessWidget {
                   ),
                 ],
               ),
+            ),
+            BarIcon(
+              icon: Icons.add,
+              centerY: NotesMetrics.barIconCenterY,
+              inset: NotesMetrics.newNoteIconInset,
+              tooltip: NotesStrings.newNote,
+              onPressed: onCreate,
             ),
             BarIcon(
               icon: Icons.search,

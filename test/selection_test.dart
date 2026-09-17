@@ -27,10 +27,16 @@ void main() {
       await dir.delete(recursive: true);
     }
     await dir.create(recursive: true);
-    final String sep = Platform.pathSeparator;
-    await File('${dir.path}${sep}甲.md').writeAsString('甲的内容');
-    await File('${dir.path}${sep}乙.md').writeAsString('乙的内容');
-    await File('${dir.path}${sep}丙.md').writeAsString('丙的内容');
+    final Map<String, String> fixture = <String, String>{
+      '甲': '甲的内容',
+      '乙': '乙的内容',
+      '丙': '丙的内容',
+    };
+    for (final MapEntry<String, String> note in fixture.entries) {
+      final File file =
+          File('${dir.path}${Platform.pathSeparator}${note.key}.md');
+      await file.writeAsString(note.value);
+    }
   });
 
   /// Builds the page with three notes loaded and no pending real IO.
@@ -80,8 +86,10 @@ void main() {
     expect(find.byIcon(Icons.delete_outline), findsOneWidget);
     expect(find.text('笔记'), findsNothing,
         reason: 'the big title gives way to the selection bar');
-    expect(find.byType(NewNoteButton), findsNothing,
-        reason: 'the new-note button is hidden while selecting (design 5.4)');
+    expect(find.byIcon(Icons.add), findsNothing,
+        reason: 'the new-note "+" is hidden while selecting');
+    expect(find.byIcon(Icons.search), findsNothing,
+        reason: 'the search icon is hidden while selecting');
 
     final NoteRow first = tester.widget<NoteRow>(find.byType(NoteRow).first);
     expect(first.selected, isTrue, reason: 'the long-pressed row is ticked');
@@ -143,9 +151,10 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
     expect(find.textContaining('已选'), findsNothing);
     expect(find.text('笔记'), findsOneWidget);
-    // The new-note button is a custom painter, not a Material icon, so it has to
-    // be found by type - `find.byIcon(Icons.add)` would silently find nothing.
-    expect(find.byType(NewNoteButton), findsOneWidget);
+    // The three top-bar icons come back.
+    expect(find.byIcon(Icons.add), findsOneWidget);
+    expect(find.byIcon(Icons.search), findsOneWidget);
+    expect(find.byIcon(Icons.more_horiz), findsOneWidget);
   });
 
   testWidgets('deleting asks for confirmation first',
