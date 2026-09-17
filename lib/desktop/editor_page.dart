@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
-import 'notes_store.dart';
+import '../notes_store.dart';
 
 /// Edits a single note.
 ///
