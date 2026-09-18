@@ -90,9 +90,12 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
 
   void _syncField() {
     if (!mounted || _field.text == _editor.text) return;
+    // The caret starts at the very beginning, which is also what keeps a note that is
+    // longer than the screen showing its *start*. Opening a note is reading it first;
+    // the keyboard only appears once the user taps where they want to write.
     _field.value = TextEditingValue(
       text: _editor.text,
-      selection: TextSelection.collapsed(offset: _editor.text.length),
+      selection: const TextSelection.collapsed(offset: 0),
     );
   }
 
@@ -380,7 +383,8 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
         undoController: _history,
         onChanged: _editor.onChanged,
         onTap: _onFieldTapped,
-        autofocus: true,
+        // No `autofocus`: the user asked for the note to open showing its beginning, with
+        // the keyboard waiting until they tap where they want to write (option C).
         maxLines: null,
         expands: true,
         textAlignVertical: TextAlignVertical.top,
@@ -393,6 +397,7 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
         style: TextStyle(
           fontSize: NotesEditorMetrics.bodyFontSize,
           height: NotesEditorMetrics.bodyLineHeight,
+          fontWeight: NotesType.body,
           color: palette.ink,
         ),
         decoration: const InputDecoration(
@@ -445,7 +450,7 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
                         onPressed: () => _prefixLine('# '),
                       ),
                       _ToolButton(
-                        icon: Icons.check_box_outlined,
+                        icon: Icons.check_circle_outline,
                         tooltip: NotesStrings.toolCheckbox,
                         onPressed: () => _prefixLine('- [ ] '),
                       ),

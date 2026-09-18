@@ -142,7 +142,7 @@ class NoteRow extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: NotesMetrics.rowTitleSize,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: NotesType.emphasis,
                   color: palette.ink,
                 ),
               ),
@@ -157,6 +157,7 @@ class NoteRow extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: NotesMetrics.rowSubtitleSize,
+                  fontWeight: NotesType.body,
                   color: palette.sub,
                 ),
               ),

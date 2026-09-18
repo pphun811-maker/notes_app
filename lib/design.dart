@@ -230,6 +230,32 @@ abstract final class NotesEditorMetrics {
   static const double toolbarIconSize = 21;
 }
 
+/// Weights shared by both pages.
+///
+/// The app asks for the system font and never sets `fontFamily`, so the only lever over how
+/// heavy the text looks is the weight.
+abstract final class NotesType {
+  /// Ordinary reading text: the editor's body, and the list page's subtitle (the date and
+  /// the preview).
+  ///
+  /// The user asked for the weight ColorOS Notes uses, so this was measured rather than
+  /// guessed. This phone's CJK font ships a single face (`NotoSansCJK-Regular.ttc`; OPPO's own
+  /// `OplusOSUI-Hans-Regular` is Regular too), so every weight above 400 is synthesised and
+  /// scales smoothly. Calibrated on the same line of text at the same glyph height (41px):
+  ///
+  /// * w400 draws a 3.0px stroke, w500 4.0px, w700 6.0px;
+  /// * ColorOS Notes draws 5.0px.
+  ///
+  /// 5.0 sits halfway between w500 and w700, so w600 is the match.
+  static const FontWeight body = FontWeight.w600;
+
+  /// Emphasis: `**bold**` inside the body, headings, and a list row's title.
+  ///
+  /// Two steps above [body] rather than one. With the body itself this heavy, w700 would be
+  /// almost invisible as emphasis.
+  static const FontWeight emphasis = FontWeight.w800;
+}
+
 /// The single source of truth for the app's `ThemeData`, light and dark.
 abstract final class NotesTheme {
   /// The accent as a Material [ColorScheme], so stock widgets that we do not draw

@@ -79,9 +79,15 @@ class MarkdownFlags {
 /// The zero-width space a hidden marker is painted as.
 const String _zeroWidth = '\u200B';
 
-/// U+2610 / U+2611, the empty and ticked ballot boxes.
-const String _boxEmpty = '\u2610';
-const String _boxTicked = '\u2611';
+/// U+25CB / U+25C9: an empty circle and the same circle with its centre filled in.
+///
+/// Circles, not the ballot boxes the first version used: the user asked for the box to be
+/// round, and U+2611 is one of the characters Android renders as a colour emoji, so the
+/// ticked state came out as a picture rather than as text in the app's own colour. Both of
+/// these are plain geometric shapes with no emoji presentation, so the accent colour and the
+/// text weight apply to them like any other character.
+const String _boxEmpty = '\u25CB';
+const String _boxTicked = '\u25C9';
 
 /// U+258D, the bar a `>` is painted as.
 const String _bar = '\u258D';
@@ -274,10 +280,10 @@ TextStyle _styleOf(
     // height is the only value that is safe for a font whose metrics we do not control.
     style = style.copyWith(
       fontSize: base.fontSize! * _headingScale[flags.heading],
-      fontWeight: FontWeight.w700,
+      fontWeight: NotesType.emphasis,
     );
   }
-  if (flags.bold) style = style.copyWith(fontWeight: FontWeight.w700);
+  if (flags.bold) style = style.copyWith(fontWeight: NotesType.emphasis);
   if (flags.italic) style = style.copyWith(fontStyle: FontStyle.italic);
   if (flags.strike) {
     style = style.copyWith(decoration: TextDecoration.lineThrough);

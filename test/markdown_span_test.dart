@@ -206,20 +206,22 @@ void main() {
       expect(span.toPlainText(), '\u200B\u200B标题');
     });
 
-    test('复选框画成方框，位置就是原来短横线的位置', () {
+    test('复选框画成圆圈，位置就是原来短横线的位置', () {
       final TextSpan span = buildMarkdownSpan(
         text: '- [ ] 牛奶',
         base: const TextStyle(fontSize: 14, height: 1.8),
         palette: NotesPalette.light,
       );
-      expect(span.toPlainText(), '\u2610\u200B\u200B\u200B\u200B 牛奶');
+      // U+25CB 空心圆，不是 U+2610 —— 后者在安卓上会渲染成彩色 emoji。
+      expect(span.toPlainText(), '\u25CB\u200B\u200B\u200B\u200B 牛奶');
 
       final TextSpan ticked = buildMarkdownSpan(
         text: '- [x] 面包',
         base: const TextStyle(fontSize: 14, height: 1.8),
         palette: NotesPalette.light,
       );
-      expect(ticked.toPlainText(), '\u2611\u200B\u200B\u200B\u200B 面包');
+      // U+25C9 圆心填实，和空心圆共用同一个外圈，看起来就是同一个东西被填充。
+      expect(ticked.toPlainText(), '\u25C9\u200B\u200B\u200B\u200B 面包');
     });
 
     test('引用画成竖线', () {
