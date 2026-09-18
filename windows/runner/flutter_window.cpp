@@ -1,6 +1,7 @@
 #include "flutter_window.h"
 
 #include <optional>
+#include <string>
 
 #include "flutter/generated_plugin_registrant.h"
 
@@ -27,6 +28,34 @@ bool FlutterWindow::OnCreate() {
   RegisterPlugins(flutter_controller_->engine());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
+  window_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          flutter_controller_->engine()->messenger(), "notes_app/window",
+          &flutter::StandardMethodCodec::GetInstance());
+  window_channel_->SetMethodCallHandler(
+      [this](const flutter::MethodCall<flutter::EncodableValue>& call,
+             std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
+                 result) {
+        const std::string& method = call.method_name();
+        if (method == "minimize") {
+          Minimize();
+          result->Success();
+        } else if (method == "toggleMaximize") {
+          ToggleMaximize();
+          result->Success();
+        } else if (method == "close") {
+          CloseWindow();
+          result->Success();
+        } else if (method == "startDrag") {
+          StartDrag();
+          result->Success();
+        } else if (method == "isMaximized") {
+          result->Success(flutter::EncodableValue(IsWindowMaximized()));
+        } else {
+          result->NotImplemented();
+        }
+      });
+
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
     this->Show();
   });
@@ -40,6 +69,7 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  window_channel_ = nullptr;
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
@@ -47,10 +77,29 @@ void FlutterWindow::OnDestroy() {
   Win32Window::OnDestroy();
 }
 
+void FlutterWindow::OnMaximizedChanged(bool maximized) {
+  if (window_channel_) {
+    window_channel_->InvokeMethod(
+        "maximizedChanged",
+        std::make_unique<flutter::EncodableValue>(maximized));
+  }
+}
+
 LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
+  // The shape of the window frame is decided here, before Flutter is offered the message.
+  // The engine answers some of these itself - `HandleTopLevelWindowProc` returns a result for
+  // WM_NCCALCSIZE, which puts the standard title bar straight back - so handing the message
+  // over first is the same as not handling it at all.
+  switch (message) {
+    case WM_NCCALCSIZE:
+    case WM_NCHITTEST:
+    case WM_GETMINMAXINFO:
+      return Win32Window::MessageHandler(hwnd, message, wparam, lparam);
+  }
+
   // Give Flutter, including plugins, an opportunity to handle window messages.
   if (flutter_controller_) {
     std::optional<LRESULT> result =

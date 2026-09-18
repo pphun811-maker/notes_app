@@ -3,6 +3,8 @@
 
 #include <flutter/dart_project.h>
 #include <flutter/flutter_view_controller.h>
+#include <flutter/method_channel.h>
+#include <flutter/standard_method_codec.h>
 
 #include <memory>
 
@@ -21,6 +23,7 @@ class FlutterWindow : public Win32Window {
   void OnDestroy() override;
   LRESULT MessageHandler(HWND window, UINT const message, WPARAM const wparam,
                          LPARAM const lparam) noexcept override;
+  void OnMaximizedChanged(bool maximized) override;
 
  private:
   // The project to run.
@@ -28,6 +31,12 @@ class FlutterWindow : public Win32Window {
 
   // The Flutter instance hosted by this window.
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
+
+  // `notes_app/window`: the few things only the app can do now that it draws its own title
+  // bar. The Dart side owns the buttons and the drag area, so it is the side that has to ask;
+  // in return this channel tells it when the maximised state changes, which is what keeps the
+  // drawn button showing the right glyph.
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> window_channel_;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

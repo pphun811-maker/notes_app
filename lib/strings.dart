@@ -98,6 +98,28 @@ abstract final class NotesStrings {
   // --- editor --------------------------------------------------------------
   static const String editorHint = '在这里写点什么……';
 
+  /// The placeholder in the desktop editor's title field, which is the file name.
+  static const String editorTitleHint = '标题';
+
+  // --- desktop -------------------------------------------------------------
+  /// The right-hand pane with no note in it.
+  static const String nothingOpenTitle = '没有打开的笔记';
+  static const String nothingOpenDetail = '从左边选一篇，或按 Ctrl+N 新建一篇。';
+
+  static const String desktopNewNote = '新建';
+  static const String desktopSearchHint = '搜索笔记';
+  static const String desktopNoteCountSection = '全部笔记';
+  static const String desktopPinnedSection = '已置顶';
+
+  /// "共 8 篇"
+  static String desktopNoteTotal(int count) => '共 $count 篇';
+  static const String desktopCloseNote = '关闭笔记';
+
+  static const String windowMinimize = '最小化';
+  static const String windowMaximize = '最大化';
+  static const String windowRestore = '还原';
+  static const String windowClose = '关闭';
+
   /// Shown instead of the editor when the note could not be read. The note stays
   /// read-only until the user retries, so that an empty editor can never replace
   /// contents the app never managed to read.

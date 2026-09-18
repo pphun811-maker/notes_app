@@ -224,11 +224,20 @@ void _analyseInline(String line, int offset, List<MarkdownFlags> flags) {
 ///
 /// [composing] is the region the IME is still working on; it is underlined so that typing
 /// Chinese shows which characters are not committed yet.
+///
+/// [emphasis] and [monoFamily] exist because this renderer is shared by two interfaces that
+/// are deliberately made to look nothing alike. The phone's headings are w800, which is what
+/// matched ColorOS Notes on a font that only ships a Regular face; on Windows the same weight
+/// looks like a mistake, and its monospace family is Consolas rather than the generic
+/// `monospace`. Everything else about the rendering - which characters are hidden, where the
+/// boxes go - is identical, and stays identical, because there is only one renderer.
 TextSpan buildMarkdownSpan({
   required String text,
   required TextStyle base,
   required NotesPalette palette,
   TextRange? composing,
+  FontWeight emphasis = NotesType.emphasis,
+  String monoFamily = 'monospace',
 }) {
   final List<MarkdownFlags> flags = analyseMarkdown(text);
   final bool hasComposing = composing != null && composing.isValid;
@@ -250,7 +259,8 @@ TextSpan buildMarkdownSpan({
     spans.add(
       TextSpan(
         text: _paint(text, flags[i], i, j),
-        style: _styleOf(flags[i], base, palette, inComposing),
+        style: _styleOf(flags[i], base, palette, inComposing, emphasis,
+            monoFamily),
       ),
     );
     i = j;
@@ -270,6 +280,8 @@ TextStyle _styleOf(
   TextStyle base,
   NotesPalette palette,
   bool inComposing,
+  FontWeight emphasis,
+  String monoFamily,
 ) {
   TextStyle style = base;
   if (flags.heading > 0) {
@@ -279,17 +291,17 @@ TextStyle _styleOf(
     // style. See the `strutStyle` on the editor's body field.
     style = style.copyWith(
       fontSize: base.fontSize! * _headingScale[flags.heading],
-      fontWeight: NotesType.emphasis,
+      fontWeight: emphasis,
     );
   }
-  if (flags.bold) style = style.copyWith(fontWeight: NotesType.emphasis);
+  if (flags.bold) style = style.copyWith(fontWeight: emphasis);
   if (flags.italic) style = style.copyWith(fontStyle: FontStyle.italic);
   if (flags.strike) {
     style = style.copyWith(decoration: TextDecoration.lineThrough);
   }
   if (flags.code) {
     style = style.copyWith(
-      fontFamily: 'monospace',
+      fontFamily: monoFamily,
       backgroundColor: palette.codeBackground,
     );
   }

@@ -55,6 +55,19 @@ class Win32Window {
   // Return a RECT representing the bounds of the current client area.
   RECT GetClientArea();
 
+  // The window draws its own title bar, so the OS one is removed (see WM_NCCALCSIZE) and the
+  // behaviour it used to provide has to be asked for explicitly. These are called from the
+  // `notes_app/window` channel by the Dart side, which is the only part that knows where its
+  // own buttons and drag area are.
+  void Minimize();
+  void ToggleMaximize();
+  void CloseWindow();
+  bool IsWindowMaximized() const;
+
+  // Hands the window to the OS for a caption drag: move, Aero snap and double-click-to-
+  // maximise all come from the OS doing this, not from anything reimplemented here.
+  void StartDrag();
+
  protected:
   // Processes and route salient window messages for mouse handling,
   // size change and DPI. Delegates handling of these to member overloads that
@@ -63,6 +76,10 @@ class Win32Window {
                                  UINT const message,
                                  WPARAM const wparam,
                                  LPARAM const lparam) noexcept;
+
+  // Called when the window is maximised or restored, so the UI can redraw the button that
+  // offers it. Windows' own button does this for free; a drawn one has to be told.
+  virtual void OnMaximizedChanged(bool maximized) {}
 
   // Called when CreateAndShow is called, allowing subclass window-related
   // setup. Subclasses should return false if setup fails.
@@ -87,6 +104,18 @@ class Win32Window {
   // Retrieves a class instance pointer for |window|
   static Win32Window* GetThisFromHandle(HWND const window) noexcept;
 
+  // Sits in front of the hosted child window's own procedure.
+  //
+  // The Flutter view is a child window covering the whole client area, so every mouse message
+  // is delivered to *it*: Windows asks the child where the cursor is, the child answers
+  // HTCLIENT, and the parent's WM_NCHITTEST never runs at all. Without this the resize borders
+  // of a window with no non-client area would be invisible to the system, and the window could
+  // be resized only by the maximise button.
+  static LRESULT CALLBACK ChildWndProc(HWND child,
+                                       UINT const message,
+                                       WPARAM const wparam,
+                                       LPARAM const lparam) noexcept;
+
   // Update the window frame's theme to match the system theme.
   static void UpdateTheme(HWND const window);
 
@@ -97,6 +126,9 @@ class Win32Window {
 
   // window handle for hosted content.
   HWND child_content_ = nullptr;
+
+  // The child's procedure before [ChildWndProc] took its place.
+  WNDPROC child_original_proc_ = nullptr;
 };
 
 #endif  // RUNNER_WIN32_WINDOW_H_

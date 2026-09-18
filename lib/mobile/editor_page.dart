@@ -16,7 +16,7 @@ import '../settings.dart';
 import '../strings.dart';
 import 'app_menu.dart';
 import 'format_panel.dart';
-import 'markdown_controller.dart';
+import '../markdown_controller.dart';
 import 'widgets.dart';
 
 /// The Android editor.

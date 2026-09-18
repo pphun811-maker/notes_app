@@ -2,10 +2,64 @@
 
 #include <dwmapi.h>
 #include <flutter_windows.h>
+#include <windowsx.h>
 
 #include "resource.h"
 
 namespace {
+
+/// The window's own title bar is replaced by one the app draws.
+///
+/// Nothing about the window *styles* changes: `WS_OVERLAPPEDWINDOW` stays, and with it the
+/// drop shadow, the rounded corners on Windows 11, Aero snap, Alt+Space, Alt+F4 and the
+/// resize borders. What is removed is only the strip Windows would paint across the top,
+/// which is done by claiming the whole window as client area in `WM_NCCALCSIZE`.
+LRESULT RemoveStandardTitleBar(HWND window, WPARAM const wparam, LPARAM const lparam) {
+  if (wparam != TRUE) {
+    return DefWindowProc(window, WM_NCCALCSIZE, wparam, lparam);
+  }
+  auto* params = reinterpret_cast<NCCALCSIZE_PARAMS*>(lparam);
+  if (IsZoomed(window)) {
+    // A maximised window is sized to the monitor *plus* the frame, so its client area would
+    // hang off every edge by the border width. Trim it back to the work area.
+    const UINT dpi = GetDpiForWindow(window);
+    const int frame = GetSystemMetricsForDpi(SM_CXSIZEFRAME, dpi) +
+                      GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+    params->rgrc[0].left += frame;
+    params->rgrc[0].top += frame;
+    params->rgrc[0].right -= frame;
+    params->rgrc[0].bottom -= frame;
+  }
+  return 0;
+}
+
+/// Offers the resize borders, which Windows would otherwise have taken from the non-client
+/// area that `RemoveStandardTitleBar` just removed.
+LRESULT HitTestResizeBorders(HWND window, LPARAM const lparam) {
+  if (IsZoomed(window)) {
+    return HTCLIENT;
+  }
+  RECT rect;
+  GetWindowRect(window, &rect);
+  const UINT dpi = GetDpiForWindow(window);
+  const int border = GetSystemMetricsForDpi(SM_CXSIZEFRAME, dpi) +
+                     GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+  const long x = GET_X_LPARAM(lparam);
+  const long y = GET_Y_LPARAM(lparam);
+  const bool left = x < rect.left + border;
+  const bool right = x >= rect.right - border;
+  const bool top = y < rect.top + border;
+  const bool bottom = y >= rect.bottom - border;
+  if (top && left) return HTTOPLEFT;
+  if (top && right) return HTTOPRIGHT;
+  if (bottom && left) return HTBOTTOMLEFT;
+  if (bottom && right) return HTBOTTOMRIGHT;
+  if (left) return HTLEFT;
+  if (right) return HTRIGHT;
+  if (top) return HTTOP;
+  if (bottom) return HTBOTTOM;
+  return HTCLIENT;
+}
 
 /// Window attribute that enables dark mode window decorations.
 ///
@@ -144,6 +198,14 @@ bool Win32Window::Create(const std::wstring& title,
     return false;
   }
 
+  // Windows only offers WM_NCCALCSIZE with the "new frame" flag when a window is resized, so
+  // one that has just been created keeps the frame it was born with - title bar and all -
+  // until something moves it. Asking for the frame to be recalculated now is what makes the
+  // very first frame the app draws already borderless.
+  SetWindowPos(window, nullptr, 0, 0, 0, 0,
+               SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
+                   SWP_NOACTIVATE);
+
   UpdateTheme(window);
 
   return OnCreate();
@@ -179,6 +241,22 @@ Win32Window::MessageHandler(HWND hwnd,
                             WPARAM const wparam,
                             LPARAM const lparam) noexcept {
   switch (message) {
+    case WM_NCCALCSIZE:
+      return RemoveStandardTitleBar(hwnd, wparam, lparam);
+
+    case WM_NCHITTEST:
+      return HitTestResizeBorders(hwnd, lparam);
+
+    case WM_GETMINMAXINFO: {
+      // Below this the sidebar and the note cannot both be shown, and the window would be
+      // resizable into a state the layout has never been tested in.
+      auto* info = reinterpret_cast<MINMAXINFO*>(lparam);
+      const double scale = GetDpiForWindow(hwnd) / 96.0;
+      info->ptMinTrackSize.x = static_cast<LONG>(880 * scale);
+      info->ptMinTrackSize.y = static_cast<LONG>(560 * scale);
+      return 0;
+    }
+
     case WM_DESTROY:
       window_handle_ = nullptr;
       Destroy();
@@ -203,6 +281,9 @@ Win32Window::MessageHandler(HWND hwnd,
         // Size and position the child window.
         MoveWindow(child_content_, rect.left, rect.top, rect.right - rect.left,
                    rect.bottom - rect.top, TRUE);
+      }
+      if (wparam == SIZE_MAXIMIZED || wparam == SIZE_RESTORED) {
+        OnMaximizedChanged(wparam == SIZE_MAXIMIZED);
       }
       return 0;
     }
@@ -241,12 +322,31 @@ Win32Window* Win32Window::GetThisFromHandle(HWND const window) noexcept {
 void Win32Window::SetChildContent(HWND content) {
   child_content_ = content;
   SetParent(content, window_handle_);
+  // Take the child's hit testing over: see ChildWndProc.
+  child_original_proc_ = reinterpret_cast<WNDPROC>(SetWindowLongPtr(
+      content, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(ChildWndProc)));
   RECT frame = GetClientArea();
 
   MoveWindow(content, frame.left, frame.top, frame.right - frame.left,
              frame.bottom - frame.top, true);
 
   SetFocus(child_content_);
+}
+
+// static
+LRESULT CALLBACK Win32Window::ChildWndProc(HWND const child,
+                                           UINT const message,
+                                           WPARAM const wparam,
+                                           LPARAM const lparam) noexcept {
+  Win32Window* that = GetThisFromHandle(GetParent(child));
+  if (that != nullptr && message == WM_NCHITTEST) {
+    return HitTestResizeBorders(GetParent(child), lparam);
+  }
+  if (that != nullptr && that->child_original_proc_ != nullptr) {
+    return CallWindowProc(that->child_original_proc_, child, message, wparam,
+                          lparam);
+  }
+  return DefWindowProc(child, message, wparam, lparam);
 }
 
 RECT Win32Window::GetClientArea() {
@@ -261,6 +361,30 @@ HWND Win32Window::GetHandle() {
 
 void Win32Window::SetQuitOnClose(bool quit_on_close) {
   quit_on_close_ = quit_on_close;
+}
+
+void Win32Window::Minimize() {
+  ShowWindow(window_handle_, SW_MINIMIZE);
+}
+
+void Win32Window::ToggleMaximize() {
+  ShowWindow(window_handle_, IsWindowMaximized() ? SW_RESTORE : SW_MAXIMIZE);
+}
+
+void Win32Window::CloseWindow() {
+  PostMessage(window_handle_, WM_CLOSE, 0, 0);
+}
+
+bool Win32Window::IsWindowMaximized() const {
+  return window_handle_ != nullptr && IsZoomed(window_handle_) != 0;
+}
+
+void Win32Window::StartDrag() {
+  // The one recipe Windows gives for this: let go of the mouse capture this thread holds and
+  // tell the window the user grabbed its caption. Everything a title bar normally does -
+  // move, snap to a screen edge, double-click to maximise - then happens in the OS.
+  ReleaseCapture();
+  SendMessage(window_handle_, WM_NCLBUTTONDOWN, HTCAPTION, 0);
 }
 
 bool Win32Window::OnCreate() {
