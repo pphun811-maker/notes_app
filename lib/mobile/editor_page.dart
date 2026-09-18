@@ -52,7 +52,20 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
   /// enough: the field stays focused and the caret keeps blinking.
   final FocusNode _focus = FocusNode();
 
+  /// The body's own scroll position, watched so the title can fold itself away.
+  final ScrollController _bodyScroll = ScrollController();
+
   bool _toolbarExpanded = true;
+
+  /// Whether the title is folded away, and whether the note has been scrolled far enough
+  /// for the scroll position to be the thing deciding it.
+  ///
+  /// The two are tracked separately so the chevron and the scroll cannot fight: the scroll
+  /// only acts when it *crosses* the threshold, so a title the user folded away by hand
+  /// stays folded while they are still at the top of the note.
+  bool _titleCollapsed = false;
+  bool _scrolledPastTitle = false;
+
   bool _committingTitle = false;
   String? _shownError;
 
@@ -67,6 +80,7 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
     // left. Both are driven by focus.
     _focus.addListener(_onFocusChanged);
     _titleFocus.addListener(_onTitleFocusChanged);
+    _bodyScroll.addListener(_onBodyScroll);
     _titleField.text = Note.fileNameWithoutExtension(_editor.file);
     unawaited(_reload());
   }
@@ -81,6 +95,7 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
     _history.dispose();
     _focus.dispose();
     _titleFocus.dispose();
+    _bodyScroll.dispose();
     _titleField.dispose();
     _field.dispose();
     _editor.dispose();
@@ -97,6 +112,25 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
     // Leaving the title field is the moment the user means "that is the name now". Renaming
     // on every keystroke would rename the file dozens of times per edit.
     if (!_titleFocus.hasFocus) unawaited(_commitTitle());
+  }
+
+  /// Folds the title away once the note has been scrolled past it, and brings it back when
+  /// the note is scrolled back to the top.
+  ///
+  /// Only a *crossing* of the threshold counts. Reacting to every scroll event would undo a
+  /// title the user had just folded away by hand the moment they nudged the note.
+  void _onBodyScroll() {
+    if (!mounted || !_bodyScroll.hasClients) return;
+    // Never take the field away while it is being typed in.
+    if (_titleFocus.hasFocus) return;
+    final bool past = _bodyScroll.offset > NotesEditorMetrics.titleCollapseAt;
+    if (past == _scrolledPastTitle) return;
+    _scrolledPastTitle = past;
+    setState(() => _titleCollapsed = past);
+  }
+
+  void _toggleTitle() {
+    setState(() => _titleCollapsed = !_titleCollapsed);
   }
 
   @override
@@ -438,40 +472,77 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
           ),
         ),
         // The title *is* the file name (HANDOFF_PHASE4 section 13.4), so this field renames
-        // the note rather than editing its text. It sits on its own row, big and bold, with a
-        // hairline underneath, so it reads as a heading instead of as the first paragraph.
-        Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: NotesEditorMetrics.sideInset,
-          ),
-          child: SizedBox(
-            height: NotesEditorMetrics.titleHeight,
-            child: TextField(
-              controller: _titleField,
-              focusNode: _titleFocus,
-              maxLines: 1,
-              textAlignVertical: TextAlignVertical.center,
-              textInputAction: TextInputAction.done,
-              onSubmitted: (String _) => _titleFocus.unfocus(),
-              style: TextStyle(
-                fontSize: NotesEditorMetrics.titleFontSize,
-                fontWeight: NotesType.emphasis,
-                color: palette.ink,
-              ),
-              decoration: const InputDecoration(
-                border: InputBorder.none,
-                isDense: true,
-                contentPadding: EdgeInsets.zero,
-              ),
-            ),
-          ),
-        ),
-        const FadingDivider(
-          left: NotesEditorMetrics.hairlineInset,
-          right: NotesEditorMetrics.hairlineInset,
-        ),
-        const SizedBox(height: NotesEditorMetrics.bodyGap),
+        // the note rather than editing its text. It folds away as the note is read, leaving
+        // behind only the little chevron that brings it back.
+        _titleArea(palette),
       ],
+    );
+  }
+
+  Widget _titleArea(NotesPalette palette) {
+    final Widget toggle = _TitleToggle(
+      collapsed: _titleCollapsed,
+      onPressed: _toggleTitle,
+    );
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 160),
+      curve: Curves.easeOut,
+      alignment: Alignment.topCenter,
+      child: _titleCollapsed
+          ? SizedBox(
+              height: NotesEditorMetrics.titleCollapsedHeight,
+              child: Padding(
+                padding: const EdgeInsets.only(
+                  right: NotesEditorMetrics.sideInset - 18,
+                ),
+                child: Align(alignment: Alignment.centerRight, child: toggle),
+              ),
+            )
+          : Column(
+              children: <Widget>[
+                SizedBox(
+                  height: NotesEditorMetrics.titleHeight,
+                  child: Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.only(
+                            left: NotesEditorMetrics.sideInset,
+                          ),
+                          child: TextField(
+                            controller: _titleField,
+                            focusNode: _titleFocus,
+                            maxLines: 1,
+                            textAlignVertical: TextAlignVertical.center,
+                            textInputAction: TextInputAction.done,
+                            onSubmitted: (String _) => _titleFocus.unfocus(),
+                            style: TextStyle(
+                              fontSize: NotesEditorMetrics.titleFontSize,
+                              fontWeight: NotesType.emphasis,
+                              color: palette.ink,
+                            ),
+                            decoration: const InputDecoration(
+                              border: InputBorder.none,
+                              isDense: true,
+                              contentPadding: EdgeInsets.zero,
+                            ),
+                          ),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.only(
+                          right: NotesEditorMetrics.sideInset - 18,
+                        ),
+                        child: toggle,
+                      ),
+                    ],
+                  ),
+                ),
+                // No hairline under the title: the user asked for it to be removed, so the
+                // size and weight of the title are the only thing setting it apart.
+                const SizedBox(height: NotesEditorMetrics.bodyGap),
+              ],
+            ),
     );
   }
 
@@ -490,6 +561,7 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
       child: TextField(
         controller: _field,
         focusNode: _focus,
+        scrollController: _bodyScroll,
         undoController: _history,
         onChanged: _editor.onChanged,
         onTap: _onFieldTapped,
@@ -597,6 +669,38 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
 
   void _openFormatPanel() {
     _toast(NotesStrings.formatPanelPending);
+  }
+}
+
+/// The small chevron that folds the title away and brings it back.
+class _TitleToggle extends StatelessWidget {
+  const _TitleToggle({required this.collapsed, required this.onPressed});
+
+  static const double size = 36;
+
+  final bool collapsed;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final NotesPalette palette = NotesPalette.of(context);
+    return SizedBox(
+      width: size,
+      height: size,
+      child: IconButton(
+        onPressed: onPressed,
+        tooltip: collapsed
+            ? NotesStrings.titleExpand
+            : NotesStrings.titleCollapse,
+        iconSize: 18,
+        padding: EdgeInsets.zero,
+        // Points the way the title will move: up to fold it away, down to bring it back.
+        icon: Icon(
+          collapsed ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_up,
+          color: palette.sub,
+        ),
+      ),
+    );
   }
 }
 

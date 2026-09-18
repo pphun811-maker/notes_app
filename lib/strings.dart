@@ -84,6 +84,10 @@ abstract final class NotesStrings {
   static const String unsavedStatus = '未保存';
   static const String saveFailedStatus = '保存失败';
 
+  /// The small chevron that folds the title away, and the one that brings it back.
+  static const String titleCollapse = '收起标题';
+  static const String titleExpand = '展开标题';
+
   // --- editor toolbar ------------------------------------------------------
   static const String toolbarCollapse = '收起工具条';
   static const String toolbarExpand = '展开工具条';

@@ -231,12 +231,24 @@ abstract final class NotesEditorMetrics {
   /// The note's title.
   ///
   /// The title **is** the file name, so this is a field rather than the note's first line:
-  /// editing it renames the file. It gets its own row and a hairline underneath so it reads
-  /// as a heading rather than as the first paragraph of the body.
+  /// editing it renames the file.
   static const double titleHeight = 56;
   static const double titleFontSize = 28;
 
-  /// The gap between the hairline under the title and the first line of the body.
+  /// What the title folds down to when it is put away.
+  ///
+  /// Not zero: the little chevron that brings it back lives here, so the strip has to stay
+  /// tall enough to hold a touch target. This mirrors the bottom toolbar, which also keeps
+  /// a thin bar with just its handle on it.
+  static const double titleCollapsedHeight = 32;
+
+  /// How far the note has to be scrolled before the title folds itself away.
+  ///
+  /// Small on purpose: the title is there for the beginning of a note, and once the reader
+  /// has moved past it the space is worth more than the heading.
+  static const double titleCollapseAt = 16;
+
+  /// The gap between the title and the first line of the body.
   static const double bodyGap = 14;
 
   /// Where a hairline starts and ends, as an inset from each edge.
