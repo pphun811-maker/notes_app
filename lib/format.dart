@@ -1,4 +1,4 @@
-//// Formats a note's modified time the way the list page shows it.
+/// Formats a note's modified time the way the list page shows it.
 ///
 /// **The date is deliberately not zero-padded.** `v5_light.png` shows
 /// `2026/09/18`, but the user asked for `2026/9/18` and the mock-up was never
