@@ -4,9 +4,29 @@
 #include <flutter_windows.h>
 #include <windowsx.h>
 
+#include <algorithm>
+
 #include "resource.h"
 
 namespace {
+
+/// The smallest the window may be dragged, in logical pixels.
+///
+/// Deliberately small. It used to be 880x560, which reads as a modest floor in logical pixels
+/// but is 1320x840 physical on this 150% display - most of a 2560x1600 screen - so the drag
+/// simply stopped while the window was still large, and there was no way to make it small.
+/// The sidebar gives way before the note pane does (see the desktop home page), so a window
+/// this size still shows both: 220 for the sidebar at its narrowest, 5 for the handle it is
+/// dragged by, and the remaining 255 for the note.
+constexpr int kMinWidth = 480;
+constexpr int kMinHeight = 320;
+
+/// How often the view's size is re-checked against the client area, in milliseconds.
+///
+/// A safety net, not the mechanism: every message that can change the size already syncs the
+/// view. This is what repairs a window that ended up in a state none of those messages
+/// explained.
+constexpr UINT kViewSyncIntervalMs = 1000;
 
 /// The window's own title bar is replaced by one the app draws.
 ///
@@ -206,6 +226,11 @@ bool Win32Window::Create(const std::wstring& title,
                SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
                    SWP_NOACTIVATE);
 
+  // A view that is one resize behind shows a whole interface drawn for the wrong window, and a
+  // resize can be missed by any single message. A slow re-check costs two cheap calls and
+  // makes the failure repair itself.
+  SetTimer(window, kViewSyncTimerId, kViewSyncIntervalMs, nullptr);
+
   UpdateTheme(window);
 
   return OnCreate();
@@ -248,12 +273,27 @@ Win32Window::MessageHandler(HWND hwnd,
       return HitTestResizeBorders(hwnd, lparam);
 
     case WM_GETMINMAXINFO: {
-      // Below this the sidebar and the note cannot both be shown, and the window would be
-      // resizable into a state the layout has never been tested in.
+      // The floor: below this the sidebar and the note cannot both be shown, and the window
+      // would be resizable into a state the layout has never been tested in. Windows clamps a
+      // window to the work area, so a floor larger than the screen would make the window
+      // impossible to size at all - hence the clamp against the work area below.
       auto* info = reinterpret_cast<MINMAXINFO*>(lparam);
       const double scale = GetDpiForWindow(hwnd) / 96.0;
-      info->ptMinTrackSize.x = static_cast<LONG>(880 * scale);
-      info->ptMinTrackSize.y = static_cast<LONG>(560 * scale);
+      info->ptMinTrackSize.x = static_cast<LONG>(kMinWidth * scale);
+      info->ptMinTrackSize.y = static_cast<LONG>(kMinHeight * scale);
+      // Never demand more than the screen can give: on a small display a floor larger than the
+      // work area would make the window larger than the monitor it sits on.
+      const HMONITOR monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+      MONITORINFO monitor_info{};
+      monitor_info.cbSize = sizeof(monitor_info);
+      if (GetMonitorInfo(monitor, &monitor_info)) {
+        const LONG work_width =
+            monitor_info.rcWork.right - monitor_info.rcWork.left;
+        const LONG work_height =
+            monitor_info.rcWork.bottom - monitor_info.rcWork.top;
+        info->ptMinTrackSize.x = std::min(info->ptMinTrackSize.x, work_width);
+        info->ptMinTrackSize.y = std::min(info->ptMinTrackSize.y, work_height);
+      }
       return 0;
     }
 
@@ -276,20 +316,54 @@ Win32Window::MessageHandler(HWND hwnd,
       return 0;
     }
     case WM_SIZE: {
-      RECT rect = GetClientArea();
-      if (child_content_ != nullptr) {
-        // Size and position the child window.
-        MoveWindow(child_content_, rect.left, rect.top, rect.right - rect.left,
-                   rect.bottom - rect.top, TRUE);
-      }
+      SyncViewToClient();
+      // The window has no non-client area, so the frame the user sees - the rounded corners
+      // and the drop shadow - is the one DWM derived from the window's *shape* at the last
+      // frame change. Growing the client area does not update it, and the stale shadow is left
+      // painted on the desktop outside the new window bounds: that is the smear that trails a
+      // resized window. Asking for the frame to be recalculated moves it with the window.
+      SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
+                   SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
+                       SWP_NOACTIVATE);
       if (wparam == SIZE_MAXIMIZED || wparam == SIZE_RESTORED) {
         OnMaximizedChanged(wparam == SIZE_MAXIMIZED);
       }
       return 0;
     }
 
+    case WM_WINDOWPOSCHANGED:
+      // Belt and braces: a size change that arrives without a WM_SIZE still leaves the view
+      // wrong, and this message comes for every move and resize alike.
+      SyncViewToClient();
+      break;
+
+    case WM_EXITSIZEMOVE:
+      // The drag is over. Everything the drag left behind - a tab strip drawn for an earlier
+      // width, window buttons painted at a right-hand edge the window no longer has - is still
+      // in the window's pixels, because the window class deliberately has no background brush
+      // and Flutter only ever repaints the area it believes it owns. Repaint the lot, frame
+      // included, so the window ends the drag as one clean picture.
+      SyncViewToClient();
+      SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
+                   SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
+                       SWP_NOACTIVATE);
+      RedrawWindow(hwnd, nullptr, nullptr,
+                   RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_ALLCHILDREN |
+                       RDW_UPDATENOW);
+      return 0;
+
+    case WM_TIMER:
+      if (wparam == kViewSyncTimerId) {
+        SyncViewToClient();
+        return 0;
+      }
+      break;
+
     case WM_ACTIVATE:
       if (child_content_ != nullptr) {
+        // Coming back to the window is a free moment to put the view right if it drifted
+        // while the window was in the background.
+        SyncViewToClient();
         SetFocus(child_content_);
       }
       return 0;
@@ -306,6 +380,7 @@ void Win32Window::Destroy() {
   OnDestroy();
 
   if (window_handle_) {
+    KillTimer(window_handle_, kViewSyncTimerId);
     DestroyWindow(window_handle_);
     window_handle_ = nullptr;
   }
@@ -353,6 +428,39 @@ RECT Win32Window::GetClientArea() {
   RECT frame;
   GetClientRect(window_handle_, &frame);
   return frame;
+}
+
+void Win32Window::SyncViewToClient() {
+  if (window_handle_ == nullptr || child_content_ == nullptr) {
+    return;
+  }
+
+  // A minimised window reports a client area the size of its taskbar button - 237x39 on this
+  // machine. Pushing that at the Flutter view is not harmless: the app lays the whole
+  // interface out for a 158x26 logical window, so the note list is rebuilt with its 292
+  // logical pixel sidebar inside a box a fifth of that wide, and every restore then depends on
+  // the next size message arriving cleanly to undo it. Nobody is looking at a minimised
+  // window, so the view keeps the size it already had.
+  if (IsIconic(window_handle_)) {
+    return;
+  }
+
+  const RECT rect = GetClientArea();
+  const int width = rect.right - rect.left;
+  const int height = rect.bottom - rect.top;
+  if (width <= 0 || height <= 0) {
+    return;
+  }
+
+  RECT current{};
+  if (GetWindowRect(child_content_, &current) &&
+      current.right - current.left == width &&
+      current.bottom - current.top == height) {
+    // Nothing to do. Forcing a repaint here would be worse than doing nothing at all.
+    return;
+  }
+
+  MoveWindow(child_content_, rect.left, rect.top, width, height, TRUE);
 }
 
 HWND Win32Window::GetHandle() {

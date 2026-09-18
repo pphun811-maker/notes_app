@@ -55,6 +55,14 @@ class Win32Window {
   // Return a RECT representing the bounds of the current client area.
   RECT GetClientArea();
 
+  // Makes the hosted Flutter view exactly as big as the client area.
+  //
+  // Called from every message that can change the window's size, and again from a slow timer,
+  // because a view that is one resize behind is not a cosmetic problem: Flutter lays the whole
+  // app out for the size it was last told, so a stale view shows a note list painted for a
+  // smaller window, with the rest of the window left as whatever was on screen before.
+  void SyncViewToClient();
+
   // The window draws its own title bar, so the OS one is removed (see WM_NCCALCSIZE) and the
   // behaviour it used to provide has to be asked for explicitly. These are called from the
   // `notes_app/window` channel by the Dart side, which is the only part that knows where its
@@ -129,6 +137,9 @@ class Win32Window {
 
   // The child's procedure before [ChildWndProc] took its place.
   WNDPROC child_original_proc_ = nullptr;
+
+  // Id of the timer that re-checks the view's size. See SyncViewToClient.
+  static constexpr UINT_PTR kViewSyncTimerId = 1;
 };
 
 #endif  // RUNNER_WIN32_WINDOW_H_

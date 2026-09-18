@@ -207,35 +207,60 @@ class _NotesHomePageState extends State<NotesHomePage>
       ),
       child: Scaffold(
         backgroundColor: p.page,
-        body: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            _band(p),
-            Expanded(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: <Widget>[
-                  SizedBox(width: _sidebarWidth, child: _sidebar(p)),
-                  _resizeHandle(p),
-                  Expanded(child: _editorArea(p)),
-                ],
-              ),
-            ),
-          ],
+        body: LayoutBuilder(
+          builder: (BuildContext context, BoxConstraints constraints) {
+            // One width for both the band's head and the sidebar itself: they are two rows of
+            // the same column, and the seam between them has to fall in the same place.
+            final double sidebar = _sidebarWidthFor(constraints.maxWidth);
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                _band(p, sidebar),
+                Expanded(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: <Widget>[
+                      SizedBox(width: sidebar, child: _sidebar(p)),
+                      _resizeHandle(p),
+                      Expanded(child: _editorArea(p)),
+                    ],
+                  ),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
   }
 
+  /// The sidebar's width in a window this wide.
+  ///
+  /// Normally the width the user dragged it to. In a narrow window the sidebar gives way
+  /// before the note pane does, because a pane narrower than
+  /// [NotesDesktopMetrics.paneMin] cannot hold the status line's own file path.
+  double _sidebarWidthFor(double total) {
+    final double wanted = _sidebarWidth.clamp(
+      NotesDesktopMetrics.sidebarMin,
+      NotesDesktopMetrics.sidebarMax,
+    );
+    final double room =
+        total - NotesDesktopMetrics.sidebarHandle - NotesDesktopMetrics.paneMin;
+    if (room >= wanted) return wanted;
+    return room < NotesDesktopMetrics.sidebarMin
+        ? NotesDesktopMetrics.sidebarMin
+        : room;
+  }
+
   // --- the top band --------------------------------------------------------
 
-  Widget _band(NotesDesktopPalette p) {
+  Widget _band(NotesDesktopPalette p, double sidebar) {
     return SizedBox(
       height: NotesDesktopMetrics.band,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          SizedBox(width: _sidebarWidth, child: _sidebarHead(p)),
+          SizedBox(width: sidebar, child: _sidebarHead(p)),
           Expanded(child: _tabStrip(p)),
           _windowButtons(p),
         ],
@@ -246,27 +271,45 @@ class _NotesHomePageState extends State<NotesHomePage>
   Widget _sidebarHead(NotesDesktopPalette p) {
     return ColoredBox(
       color: p.page,
-      child: Padding(
-        padding: const EdgeInsets.only(left: 22, right: 18),
-        child: Row(
-          children: <Widget>[
-            Text(
-              NotesStrings.listTitle,
-              style: TextStyle(
-                fontSize: 17,
-                fontWeight: NotesDesktopType.strong,
-                color: p.ink,
+      child: Row(
+        children: <Widget>[
+          const SizedBox(width: 22),
+          // The title is centred on the band's full height, then dropped by
+          // [NotesDesktopMetrics.sidebarTitleDrop] to the height the design gives it. It used to
+          // be laid out by a Row whose cross-axis alignment was `center` over the *font's* line
+          // box, which for a 17px font with no explicit `height` sits well above the middle of a
+          // 38px band - so the word rode up under the top edge. An explicit line height gives it
+          // a box that is actually the height it looks like, and the drop puts it where the
+          // design has it.
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Padding(
+                // Doubled, because this padding sits *inside* the box that gets centred: half
+                // of it moves the word down and the other half is taken back by the centring.
+                padding: const EdgeInsets.only(
+                  top: NotesDesktopMetrics.sidebarTitleDrop * 2,
+                ),
+                child: Text(
+                  NotesStrings.listTitle,
+                  style: TextStyle(
+                    fontSize: 17,
+                    height: 1.0,
+                    fontWeight: NotesDesktopType.strong,
+                    color: p.ink,
+                  ),
+                ),
               ),
             ),
-            const Spacer(),
-            _FlatButton(
-              palette: p,
-              onPressed: () => unawaited(_newNote()),
-              icon: Icons.add,
-              label: NotesStrings.desktopNewNote,
-            ),
-          ],
-        ),
+          ),
+          _FlatButton(
+            palette: p,
+            onPressed: () => unawaited(_newNote()),
+            icon: Icons.add,
+            label: NotesStrings.desktopNewNote,
+          ),
+          const SizedBox(width: 18),
+        ],
       ),
     );
   }

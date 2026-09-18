@@ -186,6 +186,14 @@ abstract final class NotesDesktopMetrics {
   /// is removed and the app's own band takes its place.
   static const double band = 38;
 
+  /// How far below the band's centre the sidebar's title sits.
+  ///
+  /// It is not centred, and that is deliberate: the design puts the word three logical pixels
+  /// under the middle, so it lines up with the note count and the search field below it rather
+  /// than with the window buttons. Measured off `design/final/desktop_win_dark.png`, where the
+  /// title's cap sits at y=14 of a 38 pixel band.
+  static const double sidebarTitleDrop = 3;
+
   /// The window buttons at the right-hand end of that band.
   static const double windowButtonWidth = 46;
 
@@ -193,6 +201,14 @@ abstract final class NotesDesktopMetrics {
   static const double sidebarMin = 220;
   static const double sidebarMax = 420;
   static const double sidebarHandle = 5;
+
+  /// What the note pane is never squeezed below, in logical pixels.
+  ///
+  /// The window can be dragged down to 480 (see `WM_GETMINMAXINFO` in the runner). At that
+  /// width the sidebar cannot keep its designed 292 and still leave a pane worth reading, so it
+  /// gives way first - down to [sidebarMin] and no further, because below that the note list's
+  /// own two lines stop fitting.
+  static const double paneMin = 260;
 
   /// A note in the sidebar: two lines, and the date on the right.
   static const double rowHeight = 56;
