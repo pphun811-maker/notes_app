@@ -73,6 +73,10 @@ class MainActivity : FlutterActivity() {
                         requestStorageAccess()
                         result.success(null)
                     }
+                    // Where the app may keep a file of its own. The notes themselves live in
+                    // the shared folder so Syncthing can see them; the few settings the app
+                    // remembers are nobody else's business and belong in here.
+                    "getConfigDirectory" -> result.success(filesDir.absolutePath)
                     else -> result.notImplemented()
                 }
             }

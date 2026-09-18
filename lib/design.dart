@@ -357,6 +357,7 @@ abstract final class NotesTheme {
     final ColorScheme scheme = _scheme(NotesColors.amber, Brightness.light);
     return _base(scheme, NotesColors.ink).copyWith(
       scaffoldBackgroundColor: NotesColors.page,
+      popupMenuTheme: _menuTheme(NotesColors.card),
     );
   }
 
@@ -364,8 +365,16 @@ abstract final class NotesTheme {
     final ColorScheme scheme = _scheme(NotesColors.darkAmber, Brightness.dark);
     return _base(scheme, NotesColors.darkInk).copyWith(
       scaffoldBackgroundColor: NotesColors.darkPage,
+      popupMenuTheme: _menuTheme(NotesColors.darkCard),
     );
   }
+
+  /// Stock Material tints a menu with the surface colour, which washes the dark theme's
+  /// near-black out to grey. The app draws its own surface instead.
+  static PopupMenuThemeData _menuTheme(Color surface) => PopupMenuThemeData(
+        color: surface,
+        surfaceTintColor: Colors.transparent,
+      );
 
   /// Everything both themes share. The app draws its own chrome, so this is
   /// deliberately thin: only the pieces that come from stock Material widgets.

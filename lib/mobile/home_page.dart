@@ -7,6 +7,7 @@ import '../design.dart';
 import '../format.dart';
 import '../notes_store.dart';
 import '../strings.dart';
+import 'app_menu.dart';
 import 'editor_page.dart';
 import 'widgets.dart';
 
@@ -555,39 +556,18 @@ class _Header extends StatelessWidget {
     VoidCallback onRescan,
     VoidCallback onSelect,
   ) async {
-    final RenderBox overlay =
-        Navigator.of(context).overlay!.context.findRenderObject()! as RenderBox;
-    final RenderBox anchor = context.findRenderObject()! as RenderBox;
-    final Offset topLeft = anchor.localToGlobal(Offset.zero, ancestor: overlay);
-    final String? choice = await showMenu<String>(
-      context: context,
-      position: RelativeRect.fromLTRB(
-        topLeft.dx,
-        topLeft.dy + anchor.size.height,
-        overlay.size.width - topLeft.dx - anchor.size.width,
-        0,
+    final String? choice = await showAppMenu(context, const <AppMenuItem>[
+      AppMenuItem(
+        value: 'rescan',
+        label: NotesStrings.rescan,
+        icon: Icons.refresh,
       ),
-      items: <PopupMenuEntry<String>>[
-        const PopupMenuItem<String>(
-          value: 'rescan',
-          child: ListTile(
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-            leading: Icon(Icons.refresh),
-            title: Text(NotesStrings.rescan),
-          ),
-        ),
-        const PopupMenuItem<String>(
-          value: 'select',
-          child: ListTile(
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-            leading: Icon(Icons.checklist),
-            title: Text(NotesStrings.selectMode),
-          ),
-        ),
-      ],
-    );
+      AppMenuItem(
+        value: 'select',
+        label: NotesStrings.selectMode,
+        icon: Icons.checklist,
+      ),
+    ]);
     if (choice == 'rescan') onRescan();
     if (choice == 'select') onSelect();
   }

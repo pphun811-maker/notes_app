@@ -12,7 +12,9 @@ import '../markdown_text.dart';
 import '../note_editor_controller.dart';
 import '../note_title.dart';
 import '../notes_store.dart';
+import '../settings.dart';
 import '../strings.dart';
+import 'app_menu.dart';
 import 'format_panel.dart';
 import 'markdown_controller.dart';
 import 'widgets.dart';
@@ -71,13 +73,10 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
   bool _committingTitle = false;
   String? _shownError;
 
-  /// The body's text settings, driven by the format panel.
-  ///
-  /// 14 and 1.8 are the design's values or the user's explicit choice; the panel only ever
-  /// changes them for this visit, until font sizes are remembered on disk.
-  double _bodyFontSize = NotesEditorMetrics.bodyFontSize;
-  double _bodyLineHeight = NotesEditorMetrics.bodyLineHeight;
-  bool _monoFont = false;
+  /// The body's text settings, driven by the format panel and remembered on disk.
+  double _bodyFontSize = NotesSettings.defaults.fontSize;
+  double _bodyLineHeight = NotesSettings.defaults.lineHeight;
+  bool _monoFont = NotesSettings.defaults.monoFont;
 
   @override
   void initState() {
@@ -92,6 +91,8 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
     _titleFocus.addListener(_onTitleFocusChanged);
     _bodyScroll.addListener(_onBodyScroll);
     _titleField.text = Note.fileNameWithoutExtension(_editor.file);
+    _applySettings(appSettings.value);
+    unawaited(_loadSettings());
     unawaited(_reload());
   }
 
@@ -114,6 +115,24 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
 
   void _onFocusChanged() {
     if (mounted) setState(() {});
+  }
+
+  void _applySettings(NotesSettings settings) {
+    _bodyFontSize = settings.fontSize;
+    _bodyLineHeight = settings.lineHeight;
+    _monoFont = settings.monoFont;
+  }
+
+  Future<void> _loadSettings() async {
+    final NotesSettings settings = await appSettings.load();
+    if (!mounted) return;
+    setState(() => _applySettings(settings));
+  }
+
+  /// Applies a change from the format panel straight away and remembers it.
+  void _changeSettings(NotesSettings settings) {
+    setState(() => _applySettings(settings));
+    unawaited(appSettings.save(settings));
   }
 
   void _onTitleFocusChanged() {
@@ -342,40 +361,18 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
   }
 
   Future<void> _showMoreMenu(BuildContext anchorContext) async {
-    final RenderBox overlay =
-        Navigator.of(anchorContext).overlay!.context.findRenderObject()!
-            as RenderBox;
-    final RenderBox anchor = anchorContext.findRenderObject()! as RenderBox;
-    final Offset topLeft = anchor.localToGlobal(Offset.zero, ancestor: overlay);
-    final String? choice = await showMenu<String>(
-      context: anchorContext,
-      position: RelativeRect.fromLTRB(
-        topLeft.dx,
-        topLeft.dy + anchor.size.height,
-        overlay.size.width - topLeft.dx - anchor.size.width,
-        0,
+    final String? choice = await showAppMenu(anchorContext, const <AppMenuItem>[
+      AppMenuItem(
+        value: 'plain',
+        label: NotesStrings.copyAsPlainText,
+        icon: Icons.content_copy,
       ),
-      items: const <PopupMenuEntry<String>>[
-        PopupMenuItem<String>(
-          value: 'plain',
-          child: ListTile(
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-            leading: Icon(Icons.content_copy),
-            title: Text(NotesStrings.copyAsPlainText),
-          ),
-        ),
-        PopupMenuItem<String>(
-          value: 'markdown',
-          child: ListTile(
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-            leading: Icon(Icons.code),
-            title: Text(NotesStrings.copyAsMarkdown),
-          ),
-        ),
-      ],
-    );
+      AppMenuItem(
+        value: 'markdown',
+        label: NotesStrings.copyAsMarkdown,
+        icon: Icons.code,
+      ),
+    ]);
     if (choice == 'plain') {
       await Clipboard.setData(
         ClipboardData(text: markdownToPlainText(_field.text)),
@@ -772,10 +769,12 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
         fontSize: _bodyFontSize,
         lineHeight: _bodyLineHeight,
         monoFont: _monoFont,
-        onFontSize: (double size) => setState(() => _bodyFontSize = size),
+        onFontSize: (double size) =>
+            _changeSettings(appSettings.value.copyWith(fontSize: size)),
         onLineHeight: (double height) =>
-            setState(() => _bodyLineHeight = height),
-        onMonoFont: (bool mono) => setState(() => _monoFont = mono),
+            _changeSettings(appSettings.value.copyWith(lineHeight: height)),
+        onMonoFont: (bool mono) =>
+            _changeSettings(appSettings.value.copyWith(monoFont: mono)),
         onAction: _applyFormat,
       ),
     );
