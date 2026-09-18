@@ -214,15 +214,33 @@ abstract final class NotesEditorMetrics {
   static const double undoOffset = -23;
   static const double redoOffset = 23;
 
-  /// The status line: the file name on the left, the save state on the right.
+  /// The status line: the save state on the right.
+  ///
+  /// It used to carry the file name on the left as well. That moved into the title field
+  /// below, which shows the same name in the size it deserves and can be edited.
   static const double statusCenterY = 53;
   static const double sideInset = 24;
   static const double statusFontSize = 12;
 
-  /// The fading hairline under the status line, and the top of the body text.
-  static const double hairlineY = 75;
+  /// The height of the block holding the icon row and the status line.
+  ///
+  /// Icons are centred at [iconCenterY] (so their 44dp boxes span 5..49) and the status
+  /// line sits at 44..62.
+  static const double barRowHeight = 62;
+
+  /// The note's title.
+  ///
+  /// The title **is** the file name, so this is a field rather than the note's first line:
+  /// editing it renames the file. It gets its own row and a hairline underneath so it reads
+  /// as a heading rather than as the first paragraph of the body.
+  static const double titleHeight = 56;
+  static const double titleFontSize = 28;
+
+  /// The gap between the hairline under the title and the first line of the body.
+  static const double bodyGap = 14;
+
+  /// Where a hairline starts and ends, as an inset from each edge.
   static const double hairlineInset = 20;
-  static const double bodyTop = 93;
 
   /// The body text. 14 and 1.8 are fixed by the design and were asked for by name;
   /// the amber cursor is the accent colour.

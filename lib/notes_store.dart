@@ -136,6 +136,27 @@ class NotesStore {
   File _fileInDirectory(String name) =>
       File('${directory.path}${Platform.pathSeparator}$name');
 
+  /// The file a note called [title] would live in.
+  File fileForTitle(String title) => _fileInDirectory('$title.md');
+
+  /// Renames [file] to [title], keeping the `.md` extension.
+  ///
+  /// Returns the file the note now lives in - the same one when the name is unchanged.
+  ///
+  /// A name that is already taken gets a number appended, exactly as [createNote] does, so a
+  /// rename can never write over another note. The name must already have been through
+  /// `sanitiseNoteTitle`; this method does not police characters.
+  Future<File> rename(File file, String title) async {
+    File target = _fileInDirectory('$title.md');
+    int index = 2;
+    while (target.path != file.path && await target.exists()) {
+      target = _fileInDirectory('$title $index.md');
+      index++;
+    }
+    if (target.path == file.path) return file;
+    return file.rename(target.path);
+  }
+
   Future<String> _previewOf(File file) async {
     try {
       final String contents = await file.readAsString();

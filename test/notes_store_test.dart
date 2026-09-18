@@ -70,4 +70,37 @@ void main() {
         NotesStore(Directory('${tempDir.path}${Platform.pathSeparator}nope'));
     expect(await missing.listNotes(), isEmpty);
   });
+
+  test('rename moves the note to the new name and keeps its contents', () async {
+    final File file = await store.createNote();
+    await store.write(file, '内容');
+
+    final File renamed = await store.rename(file, '购物清单');
+
+    expect(renamed.path, endsWith('购物清单.md'));
+    expect(await renamed.readAsString(), '内容');
+    expect(await file.exists(), isFalse);
+  });
+
+  test('rename never writes over another note; it numbers the name instead', () async {
+    final File first = await store.createNote();
+    await store.write(first, '第一篇');
+    final File second = await store.createNote();
+    await store.write(second, '第二篇');
+
+    final File renamed = await store.rename(second, '新建笔记');
+
+    expect(renamed.path, isNot(first.path));
+    expect(renamed.path, endsWith('新建笔记 2.md'));
+    // 两篇都还在，内容都没被覆盖。
+    expect(await first.readAsString(), '第一篇');
+    expect(await renamed.readAsString(), '第二篇');
+  });
+
+  test('rename to the same name changes nothing', () async {
+    final File file = await store.createNote();
+    final File same = await store.rename(file, '新建笔记');
+    expect(same.path, file.path);
+    expect(await file.exists(), isTrue);
+  });
 }

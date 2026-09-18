@@ -9,6 +9,7 @@ import '../load_failed_view.dart';
 import '../markdown_span.dart';
 import '../markdown_text.dart';
 import '../note_editor_controller.dart';
+import '../note_title.dart';
 import '../notes_store.dart';
 import '../strings.dart';
 import 'markdown_controller.dart';
@@ -43,11 +44,16 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
   final MarkdownEditingController _field = MarkdownEditingController();
   final UndoHistoryController _history = UndoHistoryController();
 
+  /// The title field. Its text is the file's name, not the note's first line.
+  final TextEditingController _titleField = TextEditingController();
+  final FocusNode _titleFocus = FocusNode();
+
   /// Held so the tick in the top bar can take focus away. Dismissing the keyboard is not
   /// enough: the field stays focused and the caret keeps blinking.
   final FocusNode _focus = FocusNode();
 
   bool _toolbarExpanded = true;
+  bool _committingTitle = false;
   String? _shownError;
 
   @override
@@ -57,6 +63,11 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
     _editor.addListener(_onEditorChanged);
     // The undo/redo buttons are enabled or greyed out from this controller's value.
     _history.addListener(_onHistoryChanged);
+    // The tick comes and goes with the keyboard; the title is renamed when its field is
+    // left. Both are driven by focus.
+    _focus.addListener(_onFocusChanged);
+    _titleFocus.addListener(_onTitleFocusChanged);
+    _titleField.text = Note.fileNameWithoutExtension(_editor.file);
     unawaited(_reload());
   }
 
@@ -65,11 +76,27 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _editor.removeListener(_onEditorChanged);
     _history.removeListener(_onHistoryChanged);
+    _focus.removeListener(_onFocusChanged);
+    _titleFocus.removeListener(_onTitleFocusChanged);
     _history.dispose();
     _focus.dispose();
+    _titleFocus.dispose();
+    _titleField.dispose();
     _field.dispose();
     _editor.dispose();
     super.dispose();
+  }
+
+  void _onFocusChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void _onTitleFocusChanged() {
+    if (!mounted) return;
+    setState(() {});
+    // Leaving the title field is the moment the user means "that is the name now". Renaming
+    // on every keystroke would rename the file dozens of times per edit.
+    if (!_titleFocus.hasFocus) unawaited(_commitTitle());
   }
 
   @override
@@ -86,11 +113,13 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
   Future<void> _reload() async {
     await _editor.load();
     _syncField();
+    _syncTitleField();
   }
 
   Future<void> _retryLoad() async {
     await _editor.retryLoad();
     _syncField();
+    _syncTitleField();
   }
 
   void _syncField() {
@@ -102,6 +131,43 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
       text: _editor.text,
       selection: const TextSelection.collapsed(offset: 0),
     );
+  }
+
+  /// Puts the file's real name back in the title field.
+  ///
+  /// Called after a rename, and after a rename that was refused - what is on screen must
+  /// always be what the file is actually called.
+  void _syncTitleField() {
+    if (!mounted) return;
+    final String name = Note.fileNameWithoutExtension(_editor.file);
+    if (_titleField.text == name) return;
+    _titleField.value = TextEditingValue(
+      text: name,
+      selection: TextSelection.collapsed(offset: name.length),
+    );
+  }
+
+  /// Renames the note if the title field no longer matches the file's name.
+  ///
+  /// Guarded against re-entry: leaving the title field and leaving the page can both fire
+  /// within the same moment, and a second rename would be working from a file path the
+  /// first one has already moved.
+  Future<void> _commitTitle() async {
+    if (_committingTitle) return;
+    _committingTitle = true;
+    try {
+      final String typed = _titleField.text;
+      if (sanitiseNoteTitle(typed) == Note.fileNameWithoutExtension(_editor.file)) {
+        // Nothing to rename - but the field may hold something cleaning would change (stray
+        // spaces, a character no file system accepts), so show the name as it really is.
+        _syncTitleField();
+        return;
+      }
+      await _editor.renameTo(typed);
+      _syncTitleField();
+    } finally {
+      _committingTitle = false;
+    }
   }
 
   void _onEditorChanged() {
@@ -131,6 +197,7 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
   /// Saves, then closes. The page never pops itself without going through here.
   Future<void> _handlePop(bool didPop) async {
     if (didPop) return;
+    await _commitTitle();
     await _editor.close();
     if (mounted) Navigator.of(context).pop();
   }
@@ -224,7 +291,9 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
   /// the caret - putting the keyboard away with its own button leaves the field focused, so
   /// the caret carried on blinking over the text while reading.
   void _finishEditing() {
+    unawaited(_commitTitle());
     _focus.unfocus();
+    _titleFocus.unfocus();
     unawaited(_editor.flush());
   }
 
@@ -289,7 +358,7 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
         body: SafeArea(
           child: Column(
             children: <Widget>[
-              _topArea(palette),
+              _header(palette),
               Expanded(child: _body()),
               _toolbar(palette),
             ],
@@ -299,59 +368,62 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
     );
   }
 
-  /// The icon row, the status line and the hairline under it.
-  Widget _topArea(NotesPalette palette) {
-    return SizedBox(
-      height: NotesEditorMetrics.bodyTop,
-      child: LayoutBuilder(
-        builder: (BuildContext context, BoxConstraints constraints) {
-          final double middle = constraints.maxWidth / 2;
-          return Stack(
-            children: <Widget>[
-              _EditorBarIcon(
-                icon: Icons.arrow_back,
-                centerX: NotesEditorMetrics.backCenterX,
-                onPressed: () => Navigator.of(context).maybePop(),
-                tooltip: NotesStrings.back,
-              ),
-              _EditorBarIcon(
-                icon: Icons.undo,
-                centerX: middle + NotesEditorMetrics.undoOffset,
-                onPressed: _history.value.canUndo ? _history.undo : null,
-                tooltip: NotesStrings.undo,
-              ),
-              _EditorBarIcon(
-                icon: Icons.redo,
-                centerX: middle + NotesEditorMetrics.redoOffset,
-                onPressed: _history.value.canRedo ? _history.redo : null,
-                tooltip: NotesStrings.redo,
-              ),
-              _EditorBarIcon(
-                icon: Icons.check,
-                rightInset: NotesEditorMetrics.doneInset,
-                onPressed: _finishEditing,
-                tooltip: NotesStrings.finishEditing,
-              ),
-              Builder(
-                builder: (BuildContext iconContext) => _EditorBarIcon(
-                  icon: Icons.more_vert,
-                  rightInset: NotesEditorMetrics.moreInset,
-                  onPressed: () => _showMoreMenu(iconContext),
-                  tooltip: NotesStrings.moreActions,
-                ),
-              ),
-              Positioned(
-                left: NotesEditorMetrics.sideInset,
-                right: NotesEditorMetrics.sideInset,
-                top: NotesEditorMetrics.statusCenterY - 9,
-                height: 18,
-                child: Row(
-                  children: <Widget>[
-                    Expanded(
+  /// The icon row, the status line, the title and the hairline under it.
+  Widget _header(NotesPalette palette) {
+    return Column(
+      children: <Widget>[
+        SizedBox(
+          height: NotesEditorMetrics.barRowHeight,
+          child: LayoutBuilder(
+            builder: (BuildContext context, BoxConstraints constraints) {
+              final double middle = constraints.maxWidth / 2;
+              return Stack(
+                children: <Widget>[
+                  _EditorBarIcon(
+                    icon: Icons.arrow_back,
+                    centerX: NotesEditorMetrics.backCenterX,
+                    onPressed: () => Navigator.of(context).maybePop(),
+                    tooltip: NotesStrings.back,
+                  ),
+                  _EditorBarIcon(
+                    icon: Icons.undo,
+                    centerX: middle + NotesEditorMetrics.undoOffset,
+                    onPressed: _history.value.canUndo ? _history.undo : null,
+                    tooltip: NotesStrings.undo,
+                  ),
+                  _EditorBarIcon(
+                    icon: Icons.redo,
+                    centerX: middle + NotesEditorMetrics.redoOffset,
+                    onPressed: _history.value.canRedo ? _history.redo : null,
+                    tooltip: NotesStrings.redo,
+                  ),
+                  // The tick is only on screen while the keyboard is: its whole job is to
+                  // put the caret away, so it disappears along with the caret and comes
+                  // back the next time the note is being written in.
+                  if (_focus.hasFocus)
+                    _EditorBarIcon(
+                      icon: Icons.check,
+                      rightInset: NotesEditorMetrics.doneInset,
+                      onPressed: _finishEditing,
+                      tooltip: NotesStrings.finishEditing,
+                    ),
+                  Builder(
+                    builder: (BuildContext iconContext) => _EditorBarIcon(
+                      icon: Icons.more_vert,
+                      rightInset: NotesEditorMetrics.moreInset,
+                      onPressed: () => _showMoreMenu(iconContext),
+                      tooltip: NotesStrings.moreActions,
+                    ),
+                  ),
+                  Positioned(
+                    left: NotesEditorMetrics.sideInset,
+                    right: NotesEditorMetrics.sideInset,
+                    top: NotesEditorMetrics.statusCenterY - 9,
+                    height: 18,
+                    child: Align(
+                      alignment: Alignment.centerRight,
                       child: Text(
-                        Note.fileNameWithoutExtension(widget.file),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                        _saveLabel,
                         style: TextStyle(
                           fontSize: NotesEditorMetrics.statusFontSize,
                           height: 1.2,
@@ -359,31 +431,47 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
                         ),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Text(
-                      _saveLabel,
-                      style: TextStyle(
-                        fontSize: NotesEditorMetrics.statusFontSize,
-                        height: 1.2,
-                        color: palette.sub,
-                      ),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+        // The title *is* the file name (HANDOFF_PHASE4 section 13.4), so this field renames
+        // the note rather than editing its text. It sits on its own row, big and bold, with a
+        // hairline underneath, so it reads as a heading instead of as the first paragraph.
+        Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: NotesEditorMetrics.sideInset,
+          ),
+          child: SizedBox(
+            height: NotesEditorMetrics.titleHeight,
+            child: TextField(
+              controller: _titleField,
+              focusNode: _titleFocus,
+              maxLines: 1,
+              textAlignVertical: TextAlignVertical.center,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (String _) => _titleFocus.unfocus(),
+              style: TextStyle(
+                fontSize: NotesEditorMetrics.titleFontSize,
+                fontWeight: NotesType.emphasis,
+                color: palette.ink,
               ),
-              const Positioned(
-                left: 0,
-                right: 0,
-                top: NotesEditorMetrics.hairlineY,
-                child: FadingDivider(
-                  left: NotesEditorMetrics.hairlineInset,
-                  right: NotesEditorMetrics.hairlineInset,
-                ),
+              decoration: const InputDecoration(
+                border: InputBorder.none,
+                isDense: true,
+                contentPadding: EdgeInsets.zero,
               ),
-            ],
-          );
-        },
-      ),
+            ),
+          ),
+        ),
+        const FadingDivider(
+          left: NotesEditorMetrics.hairlineInset,
+          right: NotesEditorMetrics.hairlineInset,
+        ),
+        const SizedBox(height: NotesEditorMetrics.bodyGap),
+      ],
     );
   }
 
@@ -425,7 +513,8 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
         decoration: const InputDecoration(
           border: InputBorder.none,
           isDense: true,
-          hintText: NotesStrings.editorHint,
+          // Deliberately no hint text: an empty note should be empty, not covered in grey
+          // instructions the user did not type and has to delete.
         ),
       ),
     );

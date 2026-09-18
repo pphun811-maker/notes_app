@@ -62,6 +62,9 @@ abstract final class NotesStrings {
   /// "保存失败：No space left on device（会自动重试）"
   static String saveFailed(String reason) => '保存失败：$reason（会自动重试）';
 
+  /// "改名失败：Permission denied"
+  static String renameFailed(String reason) => '改名失败：$reason';
+
   // --- editor top bar ------------------------------------------------------
   static const String back = '返回';
   static const String undo = '撤销';

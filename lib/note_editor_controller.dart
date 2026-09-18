@@ -31,6 +31,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import 'notes_store.dart';
+import 'note_title.dart';
 import 'strings.dart';
 
 class NoteEditorController extends ChangeNotifier {
@@ -43,7 +44,12 @@ class NoteEditorController extends ChangeNotifier {
   });
 
   final NotesStore store;
-  final File file;
+
+  /// The file the note lives in.
+  ///
+  /// Not final: renaming a note from the editor renames the file underneath, and every
+  /// later write has to land in the new one. See [renameTo].
+  File file;
 
   /// How long typing must stop before the note is written.
   ///
@@ -168,6 +174,36 @@ class NoteEditorController extends ChangeNotifier {
         .catchError((Object _) => _writeUntilClean());
     _queue = started;
     return started;
+  }
+
+  /// Renames the note so its file name matches [title], and writes to the new file from
+  /// then on.
+  ///
+  /// The title *is* the file name, so this is what "edit the title in the editor" means.
+  /// Returns the file the note now lives in, or null when there was nothing to do or the
+  /// rename failed - in which case the reason is in [error] and the note keeps its old name.
+  ///
+  /// The pending text is flushed **before** the file moves. A rename that ran ahead of the
+  /// autosave would move the file and then let the debounce write the old path back into
+  /// existence, leaving the user with two notes where they made one.
+  Future<File?> renameTo(String title) async {
+    final String cleaned = sanitiseNoteTitle(title);
+    // Nothing usable left after cleaning: keep the name we have rather than make an
+    // unnamed file.
+    if (cleaned.isEmpty) return null;
+    if (cleaned == Note.fileNameWithoutExtension(file)) return file;
+    await flush();
+    try {
+      final File renamed = await store.rename(file, cleaned);
+      file = renamed;
+      _error = null;
+      _notify();
+      return renamed;
+    } catch (error) {
+      _error = NotesStrings.renameFailed(_reasonOf(error));
+      _notify();
+      return null;
+    }
   }
 
   /// Writes anything still pending and stops the timers.
