@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -6,8 +7,10 @@ import 'package:flutter/services.dart';
 import '../design.dart';
 import '../format.dart';
 import '../notes_store.dart';
+import '../settings.dart';
 import '../strings.dart';
 import 'app_menu.dart';
+import 'conflict_page.dart';
 import 'editor_page.dart';
 import 'widgets.dart';
 
@@ -41,6 +44,13 @@ class _NotesHomePageState extends State<NotesHomePage>
   final TextEditingController _searchController = TextEditingController();
 
   List<Note> _notes = <Note>[];
+
+  /// Syncthing's conflict copies, which [NotesStore.listNotes] deliberately leaves out.
+  ///
+  /// Kept here only so the user can be told they exist: the banner below the top bar and the
+  /// ⋮ menu entry both lead to [ConflictCopiesPage]. Nothing on this page ever renders a
+  /// copy's generated name as if it were a note.
+  List<Note> _conflicts = <Note>[];
 
   /// True only until the very first load finishes. Later loads never flip this, so
   /// the list stays on screen while it refreshes.
@@ -109,6 +119,7 @@ class _NotesHomePageState extends State<NotesHomePage>
           _hasAccess = false;
           _firstLoad = false;
           _notes = <Note>[];
+          _conflicts = <Note>[];
           _selection = null;
         });
         return;
@@ -116,10 +127,15 @@ class _NotesHomePageState extends State<NotesHomePage>
 
       await _store.ensureDirectoryExists();
       final List<Note> notes = await _store.listNotes();
+      final List<Note> conflicts = await _store.listConflictCopies();
+      // Which notices the user has already swiped away lives in the settings file, so it has
+      // to be read before the banner can decide whether it is still wanted.
+      await appSettings.load();
       if (!mounted || token != _loadToken) return;
       setState(() {
         _hasAccess = true;
         _notes = notes;
+        _conflicts = conflicts;
         _firstLoad = false;
         _error = null;
         // Drop selections whose note has gone (deleted here, or removed by Syncthing).
@@ -160,6 +176,39 @@ class _NotesHomePageState extends State<NotesHomePage>
       ),
     );
     await _load();
+  }
+
+  Future<void> _openConflicts() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (BuildContext context) => ConflictCopiesPage(store: _store),
+      ),
+    );
+    await _load();
+  }
+
+  /// Whether the list should still be telling the user about conflict copies.
+  ///
+  /// The banner is a notice, not a fixture: once it is swiped away the copies it named stay
+  /// quiet, and the ⋮ menu entry stays as the way back to them. Syncthing gives every copy a
+  /// name carrying the moment it was made, so a newly conflicted note is never in the
+  /// dismissed list and its notice is shown.
+  bool get _showsConflictNotice => _conflicts.any(
+        (Note note) =>
+            !appSettings.isConflictDismissed(note.file.uri.pathSegments.last),
+      );
+
+  /// Puts the notice away for every copy currently in the folder.
+  ///
+  /// Deliberately synchronous: the store updates its in-memory list before its first `await`,
+  /// and a `Dismissible` throws if the widget it dismissed is still in the tree on the next
+  /// build. Writing the file is left to finish on its own.
+  void _dismissConflictNotice() {
+    setState(() {
+      for (final Note note in _conflicts) {
+        unawaited(appSettings.dismissConflict(note.file.uri.pathSegments.last));
+      }
+    });
   }
 
   void _toast(String message) {
@@ -380,10 +429,18 @@ class _NotesHomePageState extends State<NotesHomePage>
                 _Header(
                   key: const ValueKey<String>('notes-header'),
                   count: _notes.length,
+                  conflictCount: _conflicts.length,
                   onCreate: _createNote,
                   onSearch: _openSearch,
                   onRescan: _load,
                   onSelect: () => setState(() => _selection = <String>{}),
+                  onConflicts: _openConflicts,
+                ),
+              if (selection == null && !_searching && _showsConflictNotice)
+                _ConflictBanner(
+                  count: _conflicts.length,
+                  onTap: _openConflicts,
+                  onDismiss: _dismissConflictNotice,
                 ),
               _buildContent(notes, selection, palette),
             ],
@@ -470,19 +527,30 @@ class _Header extends StatelessWidget {
   const _Header({
     super.key,
     required this.count,
+    required this.conflictCount,
     required this.onCreate,
     required this.onSearch,
     required this.onRescan,
     required this.onSelect,
+    required this.onConflicts,
   });
 
   /// The bar is [NotesMetrics.barHeight] tall, which puts the icon centres 27dp
   /// below the top of the content area and the title's baseline just under them.
   final int count;
+
+  /// How many Syncthing conflict copies are sitting in the folder.
+  ///
+  /// The menu entry only appears when this is above zero: an entry that opens an empty page
+  /// is worse than no entry, and the copies are the kind of thing that is either there or
+  /// not.
+  final int conflictCount;
+
   final VoidCallback onCreate;
   final VoidCallback onSearch;
   final VoidCallback onRescan;
   final VoidCallback onSelect;
+  final VoidCallback onConflicts;
 
   @override
   Widget build(BuildContext context) {
@@ -541,8 +609,13 @@ class _Header extends StatelessWidget {
                 centerY: NotesMetrics.barIconCenterY,
                 inset: NotesMetrics.moreIconInset,
                 tooltip: '更多',
-                onPressed: () =>
-                    _showMoreMenu(iconContext, onRescan, onSelect),
+                onPressed: () => _showMoreMenu(
+                  iconContext,
+                  onRescan,
+                  onSelect,
+                  conflictCount,
+                  onConflicts,
+                ),
               ),
             ),
           ],
@@ -555,21 +628,110 @@ class _Header extends StatelessWidget {
     BuildContext context,
     VoidCallback onRescan,
     VoidCallback onSelect,
+    int conflictCount,
+    VoidCallback onConflicts,
   ) async {
-    final String? choice = await showAppMenu(context, const <AppMenuItem>[
-      AppMenuItem(
+    final String? choice = await showAppMenu(context, <AppMenuItem>[
+      const AppMenuItem(
         value: 'rescan',
         label: NotesStrings.rescan,
         icon: Icons.refresh,
       ),
-      AppMenuItem(
+      if (conflictCount > 0)
+        AppMenuItem(
+          value: 'conflicts',
+          label: NotesStrings.conflictsMenu(conflictCount),
+          icon: Icons.call_split,
+        ),
+      const AppMenuItem(
         value: 'select',
         label: NotesStrings.selectMode,
         icon: Icons.checklist,
       ),
     ]);
     if (choice == 'rescan') onRescan();
+    if (choice == 'conflicts') onConflicts();
     if (choice == 'select') onSelect();
+  }
+}
+
+/// The strip that says Syncthing has left conflict copies behind.
+///
+/// It sits in the page background between the top bar and the card, so it reads as a notice
+/// about the list rather than as another note. Swiping it left puts it away for good - the
+/// copies themselves stay, and the ⋮ menu entry is still there, which is why dismissing the
+/// notice cannot lose anything. It has no close button: the swipe is the whole gesture, and
+/// the banner disappears as it is dragged.
+class _ConflictBanner extends StatelessWidget {
+  const _ConflictBanner({
+    required this.count,
+    required this.onTap,
+    required this.onDismiss,
+  });
+
+  final int count;
+  final VoidCallback onTap;
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    final NotesPalette palette = NotesPalette.of(context);
+    final BorderRadius radius =
+        BorderRadius.circular(NotesMetrics.cardRadius);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        NotesMetrics.cardMargin,
+        10,
+        NotesMetrics.cardMargin,
+        0,
+      ),
+      child: Dismissible(
+        key: const ValueKey<String>('conflict-notice'),
+        direction: DismissDirection.endToStart,
+        onDismissed: (DismissDirection _) => onDismiss(),
+        background: Container(
+          decoration: BoxDecoration(
+            color: NotesColors.red,
+            borderRadius: radius,
+          ),
+          alignment: Alignment.centerRight,
+          padding: const EdgeInsets.only(right: 18),
+          child: const Icon(
+            Icons.delete_outline,
+            size: 22,
+            color: Colors.white,
+          ),
+        ),
+        child: Material(
+          color: palette.chipSelected,
+          borderRadius: radius,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: radius,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 13, 10, 13),
+              child: Row(
+                children: <Widget>[
+                  Icon(Icons.call_split, size: 20, color: palette.accentText),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      NotesStrings.conflictsFound(count),
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: NotesType.emphasis,
+                        color: palette.ink,
+                      ),
+                    ),
+                  ),
+                  Icon(Icons.chevron_right, size: 20, color: palette.sub),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 

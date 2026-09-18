@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 
+import 'sync_conflict.dart';
+
 /// One note is one `.md` file on disk.
 ///
 /// The file name (without the `.md` extension) is the note's title. Keeping the title in the
@@ -83,19 +85,40 @@ class NotesStore {
   ///
   /// Unreadable or disappearing files are skipped rather than failing the whole listing, because
   /// Syncthing may be replacing files while the list is being built.
-  Future<List<Note>> listNotes() async {
+  ///
+  /// Syncthing's conflict copies are left out. They are not the reader's notes: their name is a
+  /// generated run of digits, opening or deleting one by accident is easy, and the file may hold
+  /// the only copy of what was typed elsewhere. [listConflictCopies] is how the app keeps them
+  /// reachable instead of silently ignoring them.
+  Future<List<Note>> listNotes() => _list(wantConflicts: false);
+
+  /// The Syncthing conflict copies sitting in the folder, most recently modified first.
+  ///
+  /// Only the conflict page reads these, and only when the user asks to see one, so no preview
+  /// is read here: listing is a `stat` per copy, nothing more.
+  Future<List<Note>> listConflictCopies() => _list(wantConflicts: true);
+
+  /// The one walk behind [listNotes] and [listConflictCopies].
+  ///
+  /// [wantConflicts] picks the side of the split: every `.md` that is *not* a conflict copy, or
+  /// every one that is. Splitting them here rather than in the UI keeps the "a conflict copy is
+  /// not a note" rule in the layer that also decides what a note is.
+  Future<List<Note>> _list({required bool wantConflicts}) async {
     if (!await directory.exists()) return <Note>[];
     final List<Note> notes = <Note>[];
     await for (final FileSystemEntity entity in directory.list()) {
       if (entity is! File) continue;
       if (!entity.path.toLowerCase().endsWith('.md')) continue;
+      final bool isConflict =
+          SyncConflict.isConflictCopy(entity.uri.pathSegments.last);
+      if (isConflict != wantConflicts) continue;
       try {
         final FileStat stat = await entity.stat();
         notes.add(
           Note(
             file: entity,
             modified: stat.modified,
-            preview: await _previewOf(entity),
+            preview: wantConflicts ? '' : await _previewOf(entity),
           ),
         );
       } on FileSystemException {

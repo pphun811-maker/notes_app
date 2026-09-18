@@ -103,4 +103,62 @@ void main() {
     expect(same.path, file.path);
     expect(await file.exists(), isTrue);
   });
+
+  // --- Syncthing conflict copies -------------------------------------------
+
+  test('listNotes leaves conflict copies out but does not delete them', () async {
+    final File note = await store.createNote();
+    await store.write(note, '正文');
+    final File copy = File('${tempDir.path}${Platform.pathSeparator}'
+        '新建笔记.sync-conflict-20260918-053116-EPZ7ICC.md');
+    await copy.writeAsString('来自另一台设备的内容');
+
+    final List<Note> notes = await store.listNotes();
+
+    expect(notes.length, 1, reason: 'the copy is not a note');
+    expect(notes.single.file.path, note.path);
+    expect(await copy.exists(), isTrue,
+        reason: 'hiding a copy must never remove it: it may hold the only content');
+    expect(await copy.readAsString(), '来自另一台设备的内容');
+  });
+
+  test('listConflictCopies returns exactly the copies', () async {
+    final File note = await store.createNote();
+    await store.write(note, '正文');
+    final File copy = File('${tempDir.path}${Platform.pathSeparator}'
+        '新建笔记.sync-conflict-20260918-053116-EPZ7ICC.md');
+    await copy.writeAsString('另一份内容');
+
+    final List<Note> copies = await store.listConflictCopies();
+
+    expect(copies.length, 1);
+    expect(copies.single.file.path, copy.path);
+    expect(copies.single.title,
+        '新建笔记.sync-conflict-20260918-053116-EPZ7ICC',
+        reason: 'the raw title is what the conflict page parses');
+    expect(copies.single.preview, isEmpty,
+        reason: 'listing a copy must not read it; the page reads it when opened');
+  });
+
+  test('listConflictCopies is empty when there are no copies', () async {
+    await store.createNote();
+    expect(await store.listConflictCopies(), isEmpty);
+  });
+
+  test('the two listings never overlap', () async {
+    await store.write(await store.createNote(), '甲');
+    await store.write(await store.createNote(), '乙');
+    await File('${tempDir.path}${Platform.pathSeparator}甲.sync-conflict-20260918-053116-EPZ7ICC.md')
+        .writeAsString('甲的另一份');
+
+    final Set<String> notes =
+        (await store.listNotes()).map((Note n) => n.file.path).toSet();
+    final Set<String> copies = (await store.listConflictCopies())
+        .map((Note n) => n.file.path)
+        .toSet();
+
+    expect(notes.length, 2);
+    expect(copies.length, 1);
+    expect(notes.intersection(copies), isEmpty);
+  });
 }

@@ -115,5 +115,74 @@ void main() {
       expect(store.value.fontSize, 22);
       expect(await store.load(), store.value);
     });
+
+    // --- dismissed conflict notices ----------------------------------------
+
+    test('a dismissed conflict notice survives a restart', () async {
+      const String copy = '欢迎.sync-conflict-20260919-041500-EPZ7ICC.md';
+      final NotesSettingsStore store = storeFor(tempDir);
+      await store.dismissConflict(copy);
+
+      final NotesSettingsStore reopened = storeFor(tempDir);
+      await reopened.load();
+
+      expect(reopened.isConflictDismissed(copy), isTrue);
+      expect(reopened.isConflictDismissed('别的东西.md'), isFalse,
+          reason: 'a copy that was never dismissed is still announced');
+    });
+
+    test('a new copy is announced even though an older one was dismissed',
+        () async {
+      final NotesSettingsStore store = storeFor(tempDir);
+      await store.dismissConflict('欢迎.sync-conflict-20260918-053116-EPZ7ICC.md');
+
+      final NotesSettingsStore reopened = storeFor(tempDir);
+      await reopened.load();
+
+      expect(
+        reopened.isConflictDismissed('欢迎.sync-conflict-20260919-041500-EPZ7ICC.md'),
+        isFalse,
+        reason: 'Syncthing puts the moment in the name, so a new conflict is a new name',
+      );
+    });
+
+    test('saving a font size keeps the dismissals', () async {
+      final NotesSettingsStore store = storeFor(tempDir);
+      await store.dismissConflict('a.sync-conflict-1.md');
+      await store.save(
+        const NotesSettings(fontSize: 20, lineHeight: 1.2, monoFont: true),
+      );
+
+      final NotesSettingsStore reopened = storeFor(tempDir);
+      await reopened.load();
+
+      expect(reopened.value,
+          const NotesSettings(fontSize: 20, lineHeight: 1.2, monoFont: true));
+      expect(reopened.isConflictDismissed('a.sync-conflict-1.md'), isTrue,
+          reason: 'one file holds both, so neither may overwrite the other');
+    });
+
+    test('dismissing the same name twice does not duplicate it', () async {
+      final NotesSettingsStore store = storeFor(tempDir);
+      await store.dismissConflict('a.sync-conflict-1.md');
+      await store.dismissConflict('a.sync-conflict-1.md');
+      expect(store.dismissedConflicts, <String>['a.sync-conflict-1.md']);
+    });
+
+    test('a damaged file leaves nothing dismissed instead of throwing',
+        () async {
+      await file.writeAsString('dismissedConflicts\nfontSize=oops\n');
+      final NotesSettingsStore store = storeFor(tempDir);
+      await store.load();
+      expect(store.dismissedConflicts, isEmpty);
+    });
+
+    test('no directory means a dismissal is forgotten, not fatal', () async {
+      final NotesSettingsStore store =
+          NotesSettingsStore(configDirectory: () async => null);
+      await store.dismissConflict('a.sync-conflict-1.md');
+      expect(store.isConflictDismissed('a.sync-conflict-1.md'), isTrue,
+          reason: 'the current session still honours it');
+    });
   });
 }

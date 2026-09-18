@@ -19,9 +19,39 @@ abstract final class NotesStrings {
   static const String selectMode = '选择笔记';
 
   static const String emptyTitle = '还没有笔记';
-  static const String emptyDetail = '点右下角的“新建”写第一篇。';
+
+  /// The empty state used to say "点右下角的『新建』". That stopped being true when the
+  /// floating button was removed and "new note" moved to the top bar.
+  static const String emptyDetail = '点顶栏的“＋”写第一篇。';
 
   static const String errorTitle = '打不开笔记文件夹';
+
+  // --- Syncthing conflict copies -------------------------------------------
+  /// The heading of the conflict page, and the ⋮ menu entry.
+  static const String conflicts = '冲突副本';
+
+  /// "发现 1 份冲突副本"
+  static String conflictsFound(int count) => '发现 $count 份冲突副本';
+
+  /// The ⋮ menu entry: "冲突副本（2）".
+  ///
+  /// The count is in the label because the entry only appears when there is at least one, so
+  /// it doubles as the answer to "how many".
+  static String conflictsMenu(int count) => '$conflicts（$count）';
+
+  /// The one-line explanation shown on the conflict page and above a copy's contents.
+  static const String conflictsExplain =
+      '两端同时改了同一篇笔记时，Syncthing 会把其中一份另存为“冲突副本”。'
+      '它不会被当成笔记列出来，也不会被自动删除。';
+
+  /// Shown instead of a copy's contents when the file could not be read.
+  static const String conflictUnreadable = '这份副本没有读出来';
+
+  /// The conflict page with nothing on it, which is what the user sees if they follow the
+  /// page from a banner that has since become stale.
+  static const String conflictNone = '现在没有冲突副本';
+
+  static const String conflictBack = '返回';
 
   // --- multi-select --------------------------------------------------------
   /// "已选 2 篇".

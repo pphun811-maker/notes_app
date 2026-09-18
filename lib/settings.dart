@@ -1,10 +1,10 @@
-/// The handful of settings the app remembers between visits.
+/// The handful of things the app remembers between visits.
 ///
-/// Only the editor's text settings so far: the font size, the line height, and whether the
-/// body is drawn in the monospace face. They are stored in the app's **private** directory,
-/// not in the notes folder - the notes folder is shared with the PC through Syncthing, and
-/// a settings file appearing there would sync to the other machine and show up as a stray
-/// file in the folder the user browses.
+/// Two so far: the editor's text settings (font size, line height, and whether the body is
+/// drawn in the monospace face), and which conflict-copy notices the user has swiped away.
+/// They are stored in the app's **private** directory, not in the notes folder - the notes
+/// folder is shared with the PC through Syncthing, and a settings file appearing there would
+/// sync to the other machine and show up as a stray file in the folder the user browses.
 ///
 /// Nothing here touches `notes_store.dart`: a note is still just a `.md` file, and the two
 /// have nothing to say to each other.
@@ -112,13 +112,35 @@ class NotesSettingsStore {
   static const MethodChannel _channel = MethodChannel('notes_app/storage');
   static const String _fileName = 'settings.txt';
 
+  /// The key the conflict-copy dismissals are written under, one line per name.
+  ///
+  /// A repeated key rather than one line holding a joined list: a file name can contain
+  /// almost anything, and this way no separator has to be chosen that a name could contain.
+  static const String _dismissedKey = 'dismissedConflicts';
+
   final Future<String?> Function() _configDirectory;
 
   NotesSettings _value = NotesSettings.defaults;
+
+  /// The conflict copies whose notice the user has swiped away, oldest first.
+  ///
+  /// Kept by file name. A conflict copy always gets a fresh name from Syncthing - it carries
+  /// the moment it was made - so a *new* conflict is never in this list, and its notice is
+  /// shown even though an earlier one was dismissed.
+  List<String> _dismissedConflicts = <String>[];
+
   bool _loaded = false;
 
   /// The current settings, whether or not they have been read from disk yet.
   NotesSettings get value => _value;
+
+  /// The names the user has dismissed, oldest first.
+  List<String> get dismissedConflicts =>
+      List<String>.unmodifiable(_dismissedConflicts);
+
+  /// Whether the user has already swiped away the notice for [fileName].
+  bool isConflictDismissed(String fileName) =>
+      _dismissedConflicts.contains(fileName);
 
   NotesSettingsStore.forTesting(this._value)
       : _loaded = true,
@@ -132,7 +154,9 @@ class NotesSettingsStore {
     if (file == null) return _value;
     try {
       if (await file.exists()) {
-        _value = NotesSettings.decode(await file.readAsString());
+        final String text = await file.readAsString();
+        _value = NotesSettings.decode(text);
+        _dismissedConflicts = _decodeDismissed(text);
       }
     } on FileSystemException {
       // Keep the defaults; a note must still open.
@@ -145,14 +169,55 @@ class NotesSettingsStore {
   Future<void> save(NotesSettings settings) async {
     _value = settings;
     _loaded = true;
+    await _write();
+  }
+
+  /// Remembers that the user swiped [fileName]'s notice away.
+  ///
+  /// The in-memory list is updated before the first `await`, so the banner is gone by the
+  /// time the caller rebuilds - a `Dismissible` throws if the widget it dismissed is still in
+  /// the tree on the next frame. The write itself is best-effort, like every other setting.
+  Future<void> dismissConflict(String fileName) async {
+    if (_dismissedConflicts.contains(fileName)) return;
+    _dismissedConflicts = <String>[..._dismissedConflicts, fileName];
+    _loaded = true;
+    await _write();
+  }
+
+  /// Never throws - failing to remember a font size must not interrupt writing a note.
+  Future<void> _write() async {
     final File? file = await _file();
     if (file == null) return;
     try {
       await file.parent.create(recursive: true);
-      await file.writeAsString(settings.encode(), flush: true);
+      await file.writeAsString(_encode(), flush: true);
     } on FileSystemException {
       // Nothing to be done about it here, and nothing worth interrupting the user for.
     }
+  }
+
+  String _encode() {
+    final StringBuffer buffer = StringBuffer(_value.encode());
+    for (final String name in _dismissedConflicts) {
+      buffer.writeln('$_dismissedKey=$name');
+    }
+    return buffer.toString();
+  }
+
+  /// The dismissed names in [text], in the order they were written.
+  ///
+  /// `NotesSettings.decode` ignores keys it does not know, so the two readers can share one
+  /// file without either having to know the other's keys.
+  static List<String> _decodeDismissed(String text) {
+    final List<String> names = <String>[];
+    for (final String line in text.split('\n')) {
+      final int split = line.indexOf('=');
+      if (split <= 0) continue;
+      if (line.substring(0, split).trim() != _dismissedKey) continue;
+      final String name = line.substring(split + 1).trim();
+      if (name.isNotEmpty && !names.contains(name)) names.add(name);
+    }
+    return names;
   }
 
   File? _cached;
