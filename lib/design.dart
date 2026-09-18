@@ -264,11 +264,13 @@ abstract final class NotesEditorMetrics {
   /// Where a hairline starts and ends, as an inset from each edge.
   static const double hairlineInset = 20;
 
-  /// The body text. 14 and 1.8 are fixed by the design and were asked for by name;
-  /// the amber cursor is the accent colour.
+  /// The body text. 14 and the amber cursor are from the design and were asked for by name.
+  ///
+  /// The line height is the user's, not the mock-up's: the mock-up drew 1.8, which the user
+  /// found far too loose once it was on the phone.
   static const double bodyLeft = 24;
   static const double bodyFontSize = 14;
-  static const double bodyLineHeight = 1.8;
+  static const double bodyLineHeight = 1.5;
   static const double cursorWidth = 1.5;
 
   /// The collapsible toolbar. Collapsing it gives the body 22dp back.

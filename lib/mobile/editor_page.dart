@@ -648,11 +648,9 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
                         tooltip: NotesStrings.toolCheckbox,
                         onPressed: () => _prefixLine('- [ ] '),
                       ),
-                      _ToolButton(
-                        icon: Icons.tune,
-                        tooltip: NotesStrings.toolTextStyle,
-                        onPressed: _openFormatPanel,
-                      ),
+                      // The `Aa` button on the left opens the same panel. The mock-up carries
+                      // both, but they do the same thing, so the slider icon was dropped at the
+                      // user's request.
                       _ToolButton(
                         icon: Icons.keyboard_arrow_down,
                         tooltip: NotesStrings.toolbarCollapse,

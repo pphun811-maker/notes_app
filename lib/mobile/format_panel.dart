@@ -71,8 +71,8 @@ class FormatPanel extends StatefulWidget {
   static const double minSize = 12;
   static const double maxSize = 24;
 
-  /// The line heights offered.
-  static const List<double> lineHeights = <double>[1.4, 1.6, 1.8, 2.0, 2.4];
+  /// The line heights offered. 1.5 is the default the user settled on.
+  static const List<double> lineHeights = <double>[1.2, 1.4, 1.5, 1.6, 1.8, 2.0];
 
   @override
   State<FormatPanel> createState() => _FormatPanelState();
