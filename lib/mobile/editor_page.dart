@@ -561,6 +561,13 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
     if (_editor.loadFailed) {
       return LoadFailedView(message: _editor.error ?? '', onRetry: _retryLoad);
     }
+    final TextStyle bodyStyle = TextStyle(
+      fontSize: _bodyFontSize,
+      height: _bodyLineHeight,
+      fontWeight: NotesType.body,
+      fontFamily: _monoFont ? 'monospace' : null,
+      color: palette.ink,
+    );
     return Padding(
       padding: const EdgeInsets.symmetric(
         horizontal: NotesEditorMetrics.bodyLeft,
@@ -583,12 +590,16 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
         cursorWidth: NotesEditorMetrics.cursorWidth,
         // No `inputFormatters` and no smart lists on purpose: the user was explicit
         // that nothing may rewrite what they type (HANDOFF_PHASE3 section 5.5).
-        style: TextStyle(
-          fontSize: _bodyFontSize,
-          height: _bodyLineHeight,
-          fontWeight: NotesType.body,
-          fontFamily: _monoFont ? 'monospace' : null,
-          color: palette.ink,
+        style: bodyStyle,
+        // A text field forces every line to the height of *its own* style by default, which
+        // squashed the bigger headings into the body's line box. Their glyphs then poked out
+        // of the top of the box, and a note that began with a heading had the top of that
+        // heading sliced off flat by the edge of the field - by about 1.3dp at font size 20,
+        // which is why the user saw it at 20 and not at 14. Setting the strut from the same
+        // style but without forcing the height lets each line use its own.
+        strutStyle: StrutStyle.fromTextStyle(
+          bodyStyle,
+          forceStrutHeight: false,
         ),
         decoration: const InputDecoration(
           border: InputBorder.none,

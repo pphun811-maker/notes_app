@@ -273,11 +273,10 @@ TextStyle _styleOf(
 ) {
   TextStyle style = base;
   if (flags.heading > 0) {
-    // The line height is deliberately left alone. A CJK font's natural line height is
-    // about 1.48x its size, so a tighter `height` here makes the half-leading negative
-    // and the glyphs are drawn above the top of their own line box - which clips the
-    // first line of a note against the top of the text field. Inheriting the body's
-    // height is the only value that is safe for a font whose metrics we do not control.
+    // No `height` here on purpose: the line height is the text field's business. Setting one
+    // made no difference at all (the rendering came out byte for byte identical), because a
+    // text field's default `StrutStyle` forces every line to the height of the *field's* own
+    // style. See the `strutStyle` on the editor's body field.
     style = style.copyWith(
       fontSize: base.fontSize! * _headingScale[flags.heading],
       fontWeight: NotesType.emphasis,
