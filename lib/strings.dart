@@ -46,6 +46,22 @@ abstract final class NotesStrings {
 
   static const String deleteFailed = '删除失败';
 
+  // --- editor --------------------------------------------------------------
+  static const String editorHint = '在这里写点什么……';
+
+  /// Shown instead of the editor when the note could not be read. The note stays
+  /// read-only until the user retries, so that an empty editor can never replace
+  /// contents the app never managed to read.
+  static const String loadFailedTitle = '这篇笔记没有读出来';
+  static const String loadFailedDetail = '为避免把原有内容覆盖掉，现在不能编辑。';
+  static const String retryLoad = '重新读取';
+
+  /// "读取失败：Permission denied"
+  static String readFailed(String reason) => '读取失败：$reason';
+
+  /// "保存失败：No space left on device（会自动重试）"
+  static String saveFailed(String reason) => '保存失败：$reason（会自动重试）';
+
   // --- permission page -----------------------------------------------------
   static const String permissionTitle = '需要“所有文件访问权限”';
   static const String permissionDetail =

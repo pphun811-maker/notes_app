@@ -13,9 +13,10 @@ import '../notes_store.dart';
 /// phase-2 editor so tapping a note still opens and autosaves it - the list page
 /// must never be a dead end.
 ///
-/// The three data-loss risks listed in HANDOFF_PHASE3 section 10.1 live in that
-/// phase-2 editor and are still open. They are the first thing the editor rewrite
-/// has to fix; see the notes in `desktop/editor_page.dart`.
+/// The three data-loss risks that used to live in that phase-2 editor (HANDOFF_PHASE3
+/// section 10.1) are fixed. The rules that fix them are in [NoteEditorController], and
+/// the real Android editor must drive that same controller rather than growing its own
+/// copy of the saving logic.
 class EditorPage extends StatelessWidget {
   const EditorPage({super.key, required this.store, required this.file});
 
