@@ -201,12 +201,13 @@ abstract final class NotesEditorMetrics {
   static const double backCenterX = 28;
   static const double moreInset = 28;
 
-  /// The tick beside the back arrow: "done editing, back to reading".
+  /// The tick beside the ⋮ : "done editing, back to reading".
   ///
-  /// 48dp to the right of the back arrow, which leaves a small gap between the two 44dp
-  /// touch targets. Without it there was no way to put the caret away - dismissing the
-  /// keyboard leaves the field focused, so the caret keeps blinking while you read.
-  static const double doneCenterX = 76;
+  /// 48dp to the left of the ⋮, as an inset from the right edge, which leaves a small gap
+  /// between the two 44dp touch targets. Without it there was no way to put the caret away -
+  /// dismissing the keyboard leaves the field focused, so the caret keeps blinking while you
+  /// read.
+  static const double doneInset = 76;
 
   /// Undo and redo straddle the middle: the mock-up puts their centres at x = 183 and
   /// x = 229 on a 412dp canvas, i.e. 23dp either side of centre.

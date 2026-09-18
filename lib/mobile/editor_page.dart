@@ -315,12 +315,6 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
                 tooltip: NotesStrings.back,
               ),
               _EditorBarIcon(
-                icon: Icons.check,
-                centerX: NotesEditorMetrics.doneCenterX,
-                onPressed: _finishEditing,
-                tooltip: NotesStrings.finishEditing,
-              ),
-              _EditorBarIcon(
                 icon: Icons.undo,
                 centerX: middle + NotesEditorMetrics.undoOffset,
                 onPressed: _history.value.canUndo ? _history.undo : null,
@@ -331,6 +325,12 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
                 centerX: middle + NotesEditorMetrics.redoOffset,
                 onPressed: _history.value.canRedo ? _history.redo : null,
                 tooltip: NotesStrings.redo,
+              ),
+              _EditorBarIcon(
+                icon: Icons.check,
+                rightInset: NotesEditorMetrics.doneInset,
+                onPressed: _finishEditing,
+                tooltip: NotesStrings.finishEditing,
               ),
               Builder(
                 builder: (BuildContext iconContext) => _EditorBarIcon(
