@@ -14,9 +14,10 @@ import '../strings.dart';
 /// closed, so there is no "save" button to forget.
 ///
 /// This widget only draws the editor: the rules that keep the file in step with the text live in
-/// [NoteEditorController], which the Android editor drives as well. Until the Android editor has
-/// a UI of its own, `lib/mobile/editor_page.dart` forwards to this page, so the fixes for the
-/// three data-loss bugs reach both platforms at once.
+/// [NoteEditorController], which the Android editor drives as well. The Android editor used to
+/// forward to this page; it now has a UI of its own (`lib/mobile/editor_page.dart`) and shares
+/// only the controller, so a change here no longer reaches Android - that is what the shared
+/// controller is for.
 class EditorPage extends StatefulWidget {
   const EditorPage({super.key, required this.store, required this.file});
 
