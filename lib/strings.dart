@@ -68,6 +68,10 @@ abstract final class NotesStrings {
   static const String redo = '重做';
   static const String moreActions = '更多';
 
+  /// The tick beside the back arrow. Puts the keyboard and the caret away so the note can
+  /// be read without anything blinking at you.
+  static const String finishEditing = '完成';
+
   /// The right-hand end of the status line.
   ///
   /// "已保存 · 128 字"; while a write is in flight it says so instead, and a note that

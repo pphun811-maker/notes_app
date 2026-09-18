@@ -43,6 +43,10 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
   final MarkdownEditingController _field = MarkdownEditingController();
   final UndoHistoryController _history = UndoHistoryController();
 
+  /// Held so the tick in the top bar can take focus away. Dismissing the keyboard is not
+  /// enough: the field stays focused and the caret keeps blinking.
+  final FocusNode _focus = FocusNode();
+
   bool _toolbarExpanded = true;
   String? _shownError;
 
@@ -62,6 +66,7 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
     _editor.removeListener(_onEditorChanged);
     _history.removeListener(_onHistoryChanged);
     _history.dispose();
+    _focus.dispose();
     _field.dispose();
     _editor.dispose();
     super.dispose();
@@ -213,6 +218,16 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
     });
   }
 
+  /// Leaves editing: the keyboard goes, the caret goes, and the note is written.
+  ///
+  /// Called by the tick in the top bar. Unfocusing is the only thing that actually removes
+  /// the caret - putting the keyboard away with its own button leaves the field focused, so
+  /// the caret carried on blinking over the text while reading.
+  void _finishEditing() {
+    _focus.unfocus();
+    unawaited(_editor.flush());
+  }
+
   Future<void> _showMoreMenu(BuildContext anchorContext) async {
     final RenderBox overlay =
         Navigator.of(anchorContext).overlay!.context.findRenderObject()!
@@ -300,6 +315,12 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
                 tooltip: NotesStrings.back,
               ),
               _EditorBarIcon(
+                icon: Icons.check,
+                centerX: NotesEditorMetrics.doneCenterX,
+                onPressed: _finishEditing,
+                tooltip: NotesStrings.finishEditing,
+              ),
+              _EditorBarIcon(
                 icon: Icons.undo,
                 centerX: middle + NotesEditorMetrics.undoOffset,
                 onPressed: _history.value.canUndo ? _history.undo : null,
@@ -380,6 +401,7 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
       ),
       child: TextField(
         controller: _field,
+        focusNode: _focus,
         undoController: _history,
         onChanged: _editor.onChanged,
         onTap: _onFieldTapped,
