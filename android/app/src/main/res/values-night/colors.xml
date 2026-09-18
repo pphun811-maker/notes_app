@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The dark-mode twin of values/colors.xml. Without this the dark theme still
+     flashed white on start-up. -->
+<resources>
+    <color name="splash_background">#121214</color>
+</resources>

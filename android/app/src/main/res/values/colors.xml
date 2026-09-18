@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The colour the Android window shows before Flutter draws its first frame.
+
+     It is deliberately the same colour as the page itself (see NotesColors.page
+     and NotesColors.darkPage in lib/design.dart): the system fills the screen with
+     this while the process starts, so matching it makes the cold start look like
+     the page appearing rather than a white flash turning into a grey page. -->
+<resources>
+    <color name="splash_background">#F4F5F7</color>
+</resources>

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12 (API 31) and later always draw a splash screen during a cold start,
+     and it cannot be switched off. Left unconfigured it shows the launcher icon on
+     a white background, which is the "white screen, then the app icon" the user
+     asked to get rid of.
+
+     Setting the animated icon to a fully transparent drawable removes the icon, and
+     windowSplashScreenBackground makes the screen the same colour as the page, so
+     the splash turns into the page with no visible seam.
+
+     app_icon_splash_blank is a 288x288 fully transparent PNG in drawable-nodpi. It
+     is not empty by accident: the system insists on an icon and falls back to the
+     launcher icon when it cannot find one, so a deliberately invisible icon is the
+     only way to show nothing. -->
+<resources>
+    <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowSplashScreenBackground">@color/splash_background</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/app_icon_splash_blank</item>
+        <item name="android:windowSplashScreenAnimationDuration">0</item>
+        <item name="android:windowBackground">@color/splash_background</item>
+    </style>
+    <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowBackground">@color/splash_background</item>
+    </style>
+</resources>
