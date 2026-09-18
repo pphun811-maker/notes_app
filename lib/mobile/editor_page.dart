@@ -6,10 +6,12 @@ import 'package:flutter/services.dart';
 
 import '../design.dart';
 import '../load_failed_view.dart';
+import '../markdown_span.dart';
 import '../markdown_text.dart';
 import '../note_editor_controller.dart';
 import '../notes_store.dart';
 import '../strings.dart';
+import 'markdown_controller.dart';
 import 'widgets.dart';
 
 /// The Android editor.
@@ -21,8 +23,7 @@ import 'widgets.dart';
 /// Two things are deliberately **not** here yet, and the buttons for them say so
 /// rather than pretending to work:
 ///
-/// * the format panel (font size, and the rest of the rows in `ed4_format.png`);
-/// * rendering the Markdown while typing - the body is still the raw text.
+/// * the format panel (font size, and the rest of the rows in `ed4_format.png`).
 class EditorPage extends StatefulWidget {
   const EditorPage({super.key, required this.store, required this.file});
 
@@ -39,7 +40,7 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
     file: widget.file,
   );
 
-  final TextEditingController _field = TextEditingController();
+  final MarkdownEditingController _field = MarkdownEditingController();
   final UndoHistoryController _history = UndoHistoryController();
 
   bool _toolbarExpanded = true;
@@ -191,6 +192,22 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
       ),
     );
     _editor.onChanged(text);
+  }
+
+  /// Ticks or unticks a task box when the tap landed on one.
+  ///
+  /// The box is painted text rather than a widget, so there is nothing to attach a
+  /// gesture to: instead the tap places the caret, and a caret that lands on a box means
+  /// the box is what was tapped. The caret is only correct once the tap has been fully
+  /// handled, hence the frame callback.
+  void _onFieldTapped() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_field.selection.isValid) return;
+      final int offset = _field.selection.baseOffset;
+      final int? mark = taskBoxIndexAt(_field.text, offset);
+      if (mark == null) return;
+      _applyEdit(toggleTaskAt(_field.text, mark), offset, offset);
+    });
   }
 
   Future<void> _showMoreMenu(BuildContext anchorContext) async {
@@ -362,6 +379,7 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
         controller: _field,
         undoController: _history,
         onChanged: _editor.onChanged,
+        onTap: _onFieldTapped,
         autofocus: true,
         maxLines: null,
         expands: true,

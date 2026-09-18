@@ -40,6 +40,9 @@ abstract final class NotesColors {
   static const Color toolbarBg = Color(0xFFFAFAFB);
   static const Color btn = Color(0xFFF5F5F6);
 
+  /// The wash behind inline `` `code` ``. A shade below the page in the light theme.
+  static const Color codeBg = Color(0xFFE9EAEE);
+
   // --- dark ----------------------------------------------------------------
   static const Color darkPage = Color(0xFF121214);
   static const Color darkCard = Color(0xFF1C1C1F);
@@ -52,6 +55,9 @@ abstract final class NotesColors {
 
   /// The unselected selection ring in the dark theme.
   static const Color darkRing = Color(0xFF4E4E54);
+
+  /// The wash behind inline `` `code` `` in the dark theme: a shade above the page.
+  static const Color darkCodeBg = Color(0xFF26262B);
 }
 
 /// Layout numbers, in logical pixels.
@@ -284,6 +290,7 @@ class NotesPalette {
     required this.accentText,
     required this.ring,
     required this.toolbar,
+    required this.codeBackground,
     required this.isDark,
   });
 
@@ -297,6 +304,9 @@ class NotesPalette {
   /// The background of the editor's bottom toolbar. The dark theme has no mock-up,
   /// so it follows the same rule as the card: a lifted near-black.
   final Color toolbar;
+
+  /// The wash behind inline `` `code` ``.
+  final Color codeBackground;
 
   /// The accent when it has to be legible as text.
   final Color accentText;
@@ -316,6 +326,7 @@ class NotesPalette {
     accentText: NotesColors.amberText,
     ring: NotesColors.disabled,
     toolbar: NotesColors.toolbarBg,
+    codeBackground: NotesColors.codeBg,
     isDark: false,
   );
 
@@ -331,6 +342,7 @@ class NotesPalette {
     accentText: NotesColors.darkSub,
     ring: NotesColors.darkRing,
     toolbar: NotesColors.darkCard,
+    codeBackground: NotesColors.darkCodeBg,
     isDark: true,
   );
 
