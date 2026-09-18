@@ -62,6 +62,40 @@ abstract final class NotesStrings {
   /// "保存失败：No space left on device（会自动重试）"
   static String saveFailed(String reason) => '保存失败：$reason（会自动重试）';
 
+  // --- editor top bar ------------------------------------------------------
+  static const String back = '返回';
+  static const String undo = '撤销';
+  static const String redo = '重做';
+  static const String moreActions = '更多';
+
+  /// The right-hand end of the status line.
+  ///
+  /// "已保存 · 128 字"; while a write is in flight it says so instead, and a note that
+  /// could not be written says that rather than pretending to be saved.
+  static String savedStatus(int characters) => '已保存 · $characters 字';
+  static const String savingStatus = '正在保存…';
+  static const String unsavedStatus = '未保存';
+  static const String saveFailedStatus = '保存失败';
+
+  // --- editor toolbar ------------------------------------------------------
+  static const String toolbarCollapse = '收起工具条';
+  static const String toolbarExpand = '展开工具条';
+  static const String toolTextStyle = '格式';
+  static const String toolBold = '加粗';
+  static const String toolItalic = '斜体';
+  static const String toolHeading = '标题';
+  static const String toolCheckbox = '待办';
+
+  /// The format panel is the next piece of work; this is what the two buttons that
+  /// open it say until then.
+  static const String formatPanelPending = '格式面板还在制作中';
+
+  // --- editor menu ---------------------------------------------------------
+  static const String copyAsPlainText = '复制为纯文本';
+  static const String copyAsMarkdown = '复制为 Markdown';
+  static const String copiedPlain = '已复制（去掉 Markdown 符号）';
+  static const String copiedMarkdown = '已复制（Markdown 原文）';
+
   // --- permission page -----------------------------------------------------
   static const String permissionTitle = '需要“所有文件访问权限”';
   static const String permissionDetail =

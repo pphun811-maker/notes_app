@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import '../load_failed_view.dart';
 import '../note_editor_controller.dart';
 import '../notes_store.dart';
 import '../strings.dart';
@@ -137,7 +138,7 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
       return const Center(child: CircularProgressIndicator());
     }
     if (_editor.loadFailed) {
-      return _LoadFailed(message: _editor.error ?? '', onRetry: _retryLoad);
+      return LoadFailedView(message: _editor.error ?? '', onRetry: _retryLoad);
     }
     return Padding(
       padding: const EdgeInsets.all(12),
@@ -155,46 +156,6 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
           hintText: NotesStrings.editorHint,
         ),
         style: const TextStyle(fontSize: 16, height: 1.5),
-      ),
-    );
-  }
-}
-
-/// Shown instead of the editor when the note could not be read.
-///
-/// An empty editor over a note that still has contents is how a note gets
-/// destroyed, so the text is simply not editable until the read succeeds.
-class _LoadFailed extends StatelessWidget {
-  const _LoadFailed({required this.message, required this.onRetry});
-
-  final String message;
-  final Future<void> Function() onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Text(NotesStrings.loadFailedTitle, style: theme.textTheme.titleMedium),
-            const SizedBox(height: 8),
-            Text(message, textAlign: TextAlign.center),
-            const SizedBox(height: 6),
-            Text(
-              NotesStrings.loadFailedDetail,
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodySmall,
-            ),
-            const SizedBox(height: 16),
-            FilledButton(
-              onPressed: () => unawaited(onRetry()),
-              child: const Text(NotesStrings.retryLoad),
-            ),
-          ],
-        ),
       ),
     );
   }

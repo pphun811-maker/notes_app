@@ -173,6 +173,57 @@ abstract final class NotesMetrics {
   static const double selectAllSize = 15;
 }
 
+/// The editor page's geometry.
+///
+/// **Why these are not the mock-up's y values.** `ed4_expand.png` is drawn on the same
+/// 412 x 900 canvas as the list page, and it draws the status bar *inside* that canvas:
+/// its back arrow sits at y = 48, which is only 4dp below a status bar that the drawing
+/// makes 44dp tall. Used as a screen coordinate on the phone - where the status bar alone
+/// takes 39.7dp - that would push the icon up into the status bar. So the numbers below
+/// keep the mock-up's *spacing* (icon row, then 26dp to the status line, 22dp to the
+/// hairline, 18dp to the body) but measure it from the top of the content area, exactly
+/// as the list page's header does. `ed4_*.png` are a composition reference, not a pixel
+/// authority - see HANDOFF_PHASE4 section 7.4. Section 2.8 is this same trap.
+abstract final class NotesEditorMetrics {
+  /// Back / undo / redo / more, measured from the top of the content area.
+  ///
+  /// 27 is deliberately the same centre the list page's bar icons use, so the two
+  /// pages line up when you move between them.
+  static const double iconCenterY = 27;
+
+  /// The back arrow, and the ⋮, as insets from their own edge.
+  static const double backCenterX = 28;
+  static const double moreInset = 28;
+
+  /// Undo and redo straddle the middle: the mock-up puts their centres at x = 183 and
+  /// x = 229 on a 412dp canvas, i.e. 23dp either side of centre.
+  static const double undoOffset = -23;
+  static const double redoOffset = 23;
+
+  /// The status line: the file name on the left, the save state on the right.
+  static const double statusCenterY = 53;
+  static const double sideInset = 24;
+  static const double statusFontSize = 12;
+
+  /// The fading hairline under the status line, and the top of the body text.
+  static const double hairlineY = 75;
+  static const double hairlineInset = 20;
+  static const double bodyTop = 93;
+
+  /// The body text. 14 and 1.8 are fixed by the design and were asked for by name;
+  /// the amber cursor is the accent colour.
+  static const double bodyLeft = 24;
+  static const double bodyFontSize = 14;
+  static const double bodyLineHeight = 1.8;
+  static const double cursorWidth = 1.5;
+
+  /// The collapsible toolbar. Collapsing it gives the body 22dp back.
+  static const double toolbarExpanded = 52;
+  static const double toolbarCollapsed = 30;
+  static const double toolbarButtonSize = 40;
+  static const double toolbarIconSize = 21;
+}
+
 /// The single source of truth for the app's `ThemeData`, light and dark.
 abstract final class NotesTheme {
   /// The accent as a Material [ColorScheme], so stock widgets that we do not draw
@@ -232,6 +283,7 @@ class NotesPalette {
     required this.amber,
     required this.accentText,
     required this.ring,
+    required this.toolbar,
     required this.isDark,
   });
 
@@ -241,6 +293,10 @@ class NotesPalette {
   final Color sub;
   final Color divider;
   final Color amber;
+
+  /// The background of the editor's bottom toolbar. The dark theme has no mock-up,
+  /// so it follows the same rule as the card: a lifted near-black.
+  final Color toolbar;
 
   /// The accent when it has to be legible as text.
   final Color accentText;
@@ -259,6 +315,7 @@ class NotesPalette {
     amber: NotesColors.amber,
     accentText: NotesColors.amberText,
     ring: NotesColors.disabled,
+    toolbar: NotesColors.toolbarBg,
     isDark: false,
   );
 
@@ -273,6 +330,7 @@ class NotesPalette {
     amber: NotesColors.darkAmber,
     accentText: NotesColors.darkSub,
     ring: NotesColors.darkRing,
+    toolbar: NotesColors.darkCard,
     isDark: true,
   );
 
