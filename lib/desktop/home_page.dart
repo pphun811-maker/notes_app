@@ -271,37 +271,12 @@ class _NotesHomePageState extends State<NotesHomePage>
   Widget _sidebarHead(NotesDesktopPalette p) {
     return ColoredBox(
       color: p.page,
+      // The title used to live here. It now hangs below this band instead - see `_sidebar` -
+      // because a word placed in the band can only ever sit *in* the band, and the user wanted
+      // it sitting on the line the band ends at. What is left here is the button.
       child: Row(
         children: <Widget>[
-          const SizedBox(width: 22),
-          // The title is centred on the band's full height, then dropped by
-          // [NotesDesktopMetrics.sidebarTitleDrop] to the height the design gives it. It used to
-          // be laid out by a Row whose cross-axis alignment was `center` over the *font's* line
-          // box, which for a 17px font with no explicit `height` sits well above the middle of a
-          // 38px band - so the word rode up under the top edge. An explicit line height gives it
-          // a box that is actually the height it looks like, and the drop puts it where the
-          // design has it.
-          Expanded(
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Padding(
-                // Doubled, because this padding sits *inside* the box that gets centred: half
-                // of it moves the word down and the other half is taken back by the centring.
-                padding: const EdgeInsets.only(
-                  top: NotesDesktopMetrics.sidebarTitleDrop * 2,
-                ),
-                child: Text(
-                  NotesStrings.listTitle,
-                  style: TextStyle(
-                    fontSize: 17,
-                    height: 1.0,
-                    fontWeight: NotesDesktopType.strong,
-                    color: p.ink,
-                  ),
-                ),
-              ),
-            ),
-          ),
+          const Spacer(),
           _FlatButton(
             palette: p,
             onPressed: () => unawaited(_newNote()),
@@ -391,47 +366,76 @@ class _NotesHomePageState extends State<NotesHomePage>
     final List<Note> notes = _visibleNotes;
     return ColoredBox(
       color: p.page,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: Stack(
+        // The title hangs over the top edge of this box, which is the line the band ends at.
+        clipBehavior: Clip.none,
         children: <Widget>[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(18, 14, 18, 0),
-            child: _SearchField(
-              palette: p,
-              controller: _search,
-              onChanged: (String value) => setState(() => _query = value),
-            ),
-          ),
-          const SizedBox(height: 14),
-          _sectionLabel(p, NotesStrings.desktopNoteCountSection),
-          Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.only(bottom: 8),
-              itemCount: notes.length,
-              itemBuilder: (BuildContext context, int index) {
-                final Note note = notes[index];
-                return _NoteRow(
-                  note: note,
-                  palette: p,
-                  selected: _open?.file.path == note.file.path,
-                  onTap: () => unawaited(_openNote(note)),
-                );
-              },
-            ),
-          ),
-          if (notes.isEmpty && !_loading)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 8),
-              child: Text(
-                _query.isEmpty ? NotesStrings.emptyTitle : NotesStrings.searchEmptyTitle,
-                style: TextStyle(fontSize: 13, color: p.faint),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              const SizedBox(
+                height: NotesDesktopMetrics.sidebarTitleRoom,
               ),
-            ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(22, 6, 22, 12),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 0, 18, 0),
+                child: _SearchField(
+                  palette: p,
+                  controller: _search,
+                  onChanged: (String value) => setState(() => _query = value),
+                ),
+              ),
+              const SizedBox(height: 14),
+              _sectionLabel(p, NotesStrings.desktopNoteCountSection),
+              Expanded(
+                child: ListView.builder(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  itemCount: notes.length,
+                  itemBuilder: (BuildContext context, int index) {
+                    final Note note = notes[index];
+                    return _NoteRow(
+                      note: note,
+                      palette: p,
+                      selected: _open?.file.path == note.file.path,
+                      onTap: () => unawaited(_openNote(note)),
+                    );
+                  },
+                ),
+              ),
+              if (notes.isEmpty && !_loading)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 8),
+                  child: Text(
+                    _query.isEmpty
+                        ? NotesStrings.emptyTitle
+                        : NotesStrings.searchEmptyTitle,
+                    style: TextStyle(fontSize: 13, color: p.faint),
+                  ),
+                ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(22, 6, 22, 12),
+                child: Text(
+                  NotesStrings.desktopNoteTotal(_notes.length),
+                  style: TextStyle(fontSize: 12, color: p.faint),
+                ),
+              ),
+            ],
+          ),
+          // The word sits with its top just above the line the band ends at, so it reads as the
+          // heading of the list rather than as part of the window's chrome. Drawn over the
+          // sidebar rather than inside the band, because a child of the band cannot paint below
+          // it - the sidebar is painted afterwards and would cover it.
+          Positioned(
+            left: 22,
+            top: -NotesDesktopMetrics.sidebarTitleLift,
             child: Text(
-              NotesStrings.desktopNoteTotal(_notes.length),
-              style: TextStyle(fontSize: 12, color: p.faint),
+              NotesStrings.listTitle,
+              style: TextStyle(
+                fontSize: NotesDesktopMetrics.sidebarTitleSize,
+                // Exactly the font size tall, so the room reserved above is the room it takes.
+                height: 1.0,
+                fontWeight: NotesDesktopType.strong,
+                color: p.ink,
+              ),
             ),
           ),
         ],

@@ -186,13 +186,24 @@ abstract final class NotesDesktopMetrics {
   /// is removed and the app's own band takes its place.
   static const double band = 38;
 
-  /// How far below the band's centre the sidebar's title sits.
+  /// The sidebar title: how big it is, and how far it hangs below the band.
   ///
-  /// It is not centred, and that is deliberate: the design puts the word three logical pixels
-  /// under the middle, so it lines up with the note count and the search field below it rather
-  /// than with the window buttons. Measured off `design/final/desktop_win_dark.png`, where the
-  /// title's cap sits at y=14 of a 38 pixel band.
-  static const double sidebarTitleDrop = 3;
+  /// The word no longer sits inside the band. It hangs from the band's bottom edge with its top
+  /// [sidebarTitleLift] above that line, so it belongs to the note list underneath rather than
+  /// to the window's chrome - which is where the user asked for it, after the centred position
+  /// the design had put it in read as "jammed against the top of the window".
+  ///
+  /// `height: 1.0` on the text makes its line box exactly [sidebarTitleSize] tall, so the room
+  /// it needs below the band can be worked out rather than guessed.
+  static const double sidebarTitleSize = 17;
+  static const double sidebarTitleLift = 4;
+
+  /// The band a sidebar title hung below the band needs kept clear of the search field.
+  ///
+  /// Everything of the title that falls below the line is inside the sidebar's own column, and
+  /// the search field has to start under it.
+  static const double sidebarTitleRoom =
+      sidebarTitleSize - sidebarTitleLift + 14;
 
   /// The window buttons at the right-hand end of that band.
   static const double windowButtonWidth = 46;
