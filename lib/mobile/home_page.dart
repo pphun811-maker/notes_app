@@ -25,13 +25,21 @@ import 'widgets.dart';
 ///  * returning from the background no longer does either (bug #5),
 ///  * overlapping refreshes can no longer land out of order (bug #6).
 class NotesHomePage extends StatefulWidget {
-  const NotesHomePage({super.key, this.store});
+  const NotesHomePage({super.key, this.store, this.storageAccess});
 
   /// The data layer to read notes from.
   ///
   /// Defaults to the real notes folder. Tests inject a temporary folder instead,
   /// which is the only reason this is a parameter at all.
   final NotesStore? store;
+
+  /// Overrides the platform's answer to "may this app read the notes folder?".
+  ///
+  /// Defaults to [NotesStore.hasStorageAccess]. Tests pass one because that call answers
+  /// `true` without ever touching the channel on a non-Android host, which would leave the
+  /// permission screen - the screen a fresh install, or a system update that drops the
+  /// permission, lands on - impossible to reach from a widget test.
+  final Future<bool> Function()? storageAccess;
 
   @override
   State<NotesHomePage> createState() => _NotesHomePageState();
@@ -112,7 +120,8 @@ class _NotesHomePageState extends State<NotesHomePage>
     _loadInFlight = true;
     final int token = ++_loadToken;
     try {
-      final bool hasAccess = await NotesStore.hasStorageAccess();
+      final bool hasAccess =
+          await (widget.storageAccess ?? NotesStore.hasStorageAccess)();
       if (!mounted || token != _loadToken) return;
       if (!hasAccess) {
         setState(() {
@@ -151,7 +160,9 @@ class _NotesHomePageState extends State<NotesHomePage>
       setState(() {
         _hasAccess = true;
         _firstLoad = false;
-        _error = '无法打开笔记文件夹：${error.osError?.message ?? error.message}';
+        _error = NotesStrings.errorOpeningFolder(
+          error.osError?.message ?? error.message,
+        );
       });
     } finally {
       _loadInFlight = false;
@@ -165,7 +176,9 @@ class _NotesHomePageState extends State<NotesHomePage>
       await _openEditor(file);
     } on FileSystemException catch (error) {
       if (!mounted) return;
-      _toast('新建失败：${error.osError?.message ?? error.message}');
+      _toast(NotesStrings.createFailed(
+        error.osError?.message ?? error.message,
+      ));
     }
   }
 
@@ -459,18 +472,20 @@ class _NotesHomePageState extends State<NotesHomePage>
       return _CenteredMessage(
         icon: Icons.folder_off_outlined,
         title: NotesStrings.errorTitle,
-        detail: '$_error\n\n文件夹：${_store.directory.path}',
+        detail: NotesStrings.errorFolder(_error!, _store.directory.path),
         palette: palette,
       );
     }
     if (notes.isEmpty) {
       return _CenteredMessage(
         icon: _searching ? Icons.search_off : Icons.note_add_outlined,
-        title: _searching ? '没有匹配的笔记' : NotesStrings.emptyTitle,
+        title: _searching
+            ? NotesStrings.searchEmptyTitle
+            : NotesStrings.emptyTitle,
         detail: _searching
-            ? '换个词试试。'
+            ? NotesStrings.searchEmptyDetail
             : '${NotesStrings.emptyDetail}\n\n'
-                '笔记就是这个文件夹里的 .md 文本文件：\n${_store.directory.path}',
+                '${NotesStrings.emptyFolderNote(_store.directory.path)}',
         palette: palette,
       );
     }
@@ -608,7 +623,7 @@ class _Header extends StatelessWidget {
                 icon: Icons.more_horiz,
                 centerY: NotesMetrics.barIconCenterY,
                 inset: NotesMetrics.moreIconInset,
-                tooltip: '更多',
+                tooltip: NotesStrings.moreActions,
                 onPressed: () => _showMoreMenu(
                   iconContext,
                   onRescan,
@@ -844,7 +859,7 @@ class _SearchBar extends StatelessWidget {
               onPressed: onClose,
               iconSize: 24,
               padding: EdgeInsets.zero,
-              tooltip: '关闭搜索',
+              tooltip: NotesStrings.closeSearch,
               icon: Icon(Icons.close, color: palette.ink),
             ),
           ),
@@ -904,7 +919,7 @@ class _SelectionTopBar extends StatelessWidget {
               child: _IconTap(
                 icon: Icons.close,
                 color: palette.ink,
-                tooltip: '退出多选',
+                tooltip: NotesStrings.exitSelection,
                 onPressed: onClose,
               ),
             ),

@@ -17,6 +17,8 @@ abstract final class NotesStrings {
   static const String newNote = '新建笔记';
   static const String rescan = '重新扫描笔记文件夹';
   static const String selectMode = '选择笔记';
+  static const String closeSearch = '关闭搜索';
+  static const String exitSelection = '退出多选';
 
   static const String emptyTitle = '还没有笔记';
 
@@ -24,7 +26,24 @@ abstract final class NotesStrings {
   /// floating button was removed and "new note" moved to the top bar.
   static const String emptyDetail = '点顶栏的“＋”写第一篇。';
 
+  /// The empty state's last line: the folder the app is actually looking at.
+  static String emptyFolderNote(String path) =>
+      '笔记就是这个文件夹里的 .md 文本文件：\n$path';
+
+  static const String searchEmptyTitle = '没有匹配的笔记';
+  static const String searchEmptyDetail = '换个词试试。';
+
   static const String errorTitle = '打不开笔记文件夹';
+
+  /// "无法打开笔记文件夹：Permission denied"
+  static String errorOpeningFolder(String reason) => '无法打开笔记文件夹：$reason';
+
+  /// The error state's second line, under [errorOpeningFolder]: which folder it was.
+  static String errorFolder(String message, String path) =>
+      '$message\n\n文件夹：$path';
+
+  /// "新建失败：No space left on device"
+  static String createFailed(String reason) => '新建失败：$reason';
 
   // --- Syncthing conflict copies -------------------------------------------
   /// The heading of the conflict page, and the ⋮ menu entry.
@@ -131,7 +150,6 @@ abstract final class NotesStrings {
   static const String formatTitle = '格式';
   static const String formatClose = '关闭';
   static const String pickLineHeight = '行距';
-  static const String pickFontFamily = '系统字体';
   static const String fontFamilySystem = '系统字体';
   static const String fontFamilyMono = '等宽字体';
   static const String toolStrike = '删除线';
