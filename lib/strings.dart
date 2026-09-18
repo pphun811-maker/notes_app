@@ -97,9 +97,22 @@ abstract final class NotesStrings {
   static const String toolHeading = '标题';
   static const String toolCheckbox = '待办';
 
-  /// The format panel is the next piece of work; this is what the two buttons that
-  /// open it say until then.
-  static const String formatPanelPending = '格式面板还在制作中';
+  // --- format panel --------------------------------------------------------
+  static const String formatTitle = '格式';
+  static const String formatClose = '关闭';
+  static const String pickLineHeight = '行距';
+  static const String pickFontFamily = '系统字体';
+  static const String fontFamilySystem = '系统字体';
+  static const String fontFamilyMono = '等宽字体';
+  static const String toolStrike = '删除线';
+  static const String toolCode = '行内代码';
+  static const String toolDivider = '分割线';
+  static const String toolBulletList = '无序列表';
+  static const String toolNumberList = '编号列表';
+  static const String toolIndent = '缩进';
+  static const String toolOutdent = '取消缩进';
+  static const String toolQuote = '引用';
+  static const String toolDate = '插入日期';
 
   // --- editor menu ---------------------------------------------------------
   static const String copyAsPlainText = '复制为纯文本';

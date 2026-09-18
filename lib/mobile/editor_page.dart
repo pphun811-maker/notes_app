@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../design.dart';
+import '../format.dart';
 import '../load_failed_view.dart';
 import '../markdown_span.dart';
 import '../markdown_text.dart';
@@ -12,6 +13,7 @@ import '../note_editor_controller.dart';
 import '../note_title.dart';
 import '../notes_store.dart';
 import '../strings.dart';
+import 'format_panel.dart';
 import 'markdown_controller.dart';
 import 'widgets.dart';
 
@@ -68,6 +70,14 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
 
   bool _committingTitle = false;
   String? _shownError;
+
+  /// The body's text settings, driven by the format panel.
+  ///
+  /// 14 and 1.8 are the design's values or the user's explicit choice; the panel only ever
+  /// changes them for this visit, until font sizes are remembered on disk.
+  double _bodyFontSize = NotesEditorMetrics.bodyFontSize;
+  double _bodyLineHeight = NotesEditorMetrics.bodyLineHeight;
+  bool _monoFont = false;
 
   @override
   void initState() {
@@ -577,9 +587,10 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
         // No `inputFormatters` and no smart lists on purpose: the user was explicit
         // that nothing may rewrite what they type (HANDOFF_PHASE3 section 5.5).
         style: TextStyle(
-          fontSize: NotesEditorMetrics.bodyFontSize,
-          height: NotesEditorMetrics.bodyLineHeight,
+          fontSize: _bodyFontSize,
+          height: _bodyLineHeight,
           fontWeight: NotesType.body,
+          fontFamily: _monoFont ? 'monospace' : null,
           color: palette.ink,
         ),
         decoration: const InputDecoration(
@@ -667,8 +678,109 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
     setState(() => _toolbarExpanded = !_toolbarExpanded);
   }
 
-  void _openFormatPanel() {
-    _toast(NotesStrings.formatPanelPending);
+  /// Inserts [insert] at the caret, leaving the caret after it.
+  void _insertText(String insert) {
+    final TextEditingValue value = _field.value;
+    final TextSelection selection = value.selection;
+    if (!selection.isValid) return;
+    final String text = value.text;
+    final String updated =
+        selection.textBefore(text) + insert + selection.textAfter(text);
+    _applyEdit(
+      updated,
+      selection.start + insert.length,
+      selection.start + insert.length,
+    );
+  }
+
+  /// Adds or removes leading spaces on the line the caret is on.
+  void _indentLine(int delta) {
+    final TextEditingValue value = _field.value;
+    final TextSelection selection = value.selection;
+    if (!selection.isValid) return;
+    final String text = value.text;
+    final int lineStart = selection.start == 0
+        ? 0
+        : text.lastIndexOf('\n', selection.start - 1) + 1;
+
+    if (delta > 0) {
+      final String pad = ' ' * delta;
+      _applyEdit(
+        text.substring(0, lineStart) + pad + text.substring(lineStart),
+        selection.start + delta,
+        selection.end + delta,
+      );
+      return;
+    }
+
+    int removable = 0;
+    while (removable < -delta &&
+        lineStart + removable < text.length &&
+        text[lineStart + removable] == ' ') {
+      removable++;
+    }
+    if (removable == 0) return;
+    _applyEdit(
+      text.substring(0, lineStart) + text.substring(lineStart + removable),
+      selection.start - removable,
+      selection.end - removable,
+    );
+  }
+
+  /// Runs one of the format panel's buttons against the text.
+  ///
+  /// The panel never touches the text itself; every rule about what a button does lives
+  /// here, next to the toolbar buttons that do the same things.
+  void _applyFormat(FormatAction action) {
+    switch (action) {
+      case FormatAction.bold:
+        _wrapSelection('**');
+      case FormatAction.italic:
+        _wrapSelection('*');
+      case FormatAction.strike:
+        _wrapSelection('~~');
+      case FormatAction.code:
+        _wrapSelection('`');
+      case FormatAction.checkbox:
+        _prefixLine('- [ ] ');
+      case FormatAction.bullet:
+        _prefixLine('- ');
+      case FormatAction.numbered:
+        _prefixLine('1. ');
+      case FormatAction.quote:
+        _prefixLine('> ');
+      case FormatAction.divider:
+        _insertText('\n---\n');
+      case FormatAction.indent:
+        _indentLine(2);
+      case FormatAction.outdent:
+        _indentLine(-2);
+      case FormatAction.date:
+        _insertText(formatNoteDate(DateTime.now()));
+    }
+  }
+
+  /// Brings up the format panel.
+  ///
+  /// Opening it puts the keyboard away, which is what the mock-up shows: the panel takes
+  /// the keyboard's place at the bottom of the screen instead of stacking on top of it.
+  Future<void> _openFormatPanel() async {
+    _focus.unfocus();
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (BuildContext sheetContext) => FormatPanel(
+        fontSize: _bodyFontSize,
+        lineHeight: _bodyLineHeight,
+        monoFont: _monoFont,
+        onFontSize: (double size) => setState(() => _bodyFontSize = size),
+        onLineHeight: (double height) =>
+            setState(() => _bodyLineHeight = height),
+        onMonoFont: (bool mono) => setState(() => _monoFont = mono),
+        onAction: _applyFormat,
+      ),
+    );
   }
 }
 

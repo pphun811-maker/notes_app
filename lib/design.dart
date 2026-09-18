@@ -43,6 +43,10 @@ abstract final class NotesColors {
   /// The wash behind inline `` `code` ``. A shade below the page in the light theme.
   static const Color codeBg = Color(0xFFE9EAEE);
 
+  /// The fill of a button in the format panel, and of a selected size chip.
+  static const Color panelButton = Color(0xFFF5F5F6);
+  static const Color chipSelected = Color(0xFFFDF0CC);
+
   // --- dark ----------------------------------------------------------------
   static const Color darkPage = Color(0xFF121214);
   static const Color darkCard = Color(0xFF1C1C1F);
@@ -58,6 +62,12 @@ abstract final class NotesColors {
 
   /// The wash behind inline `` `code` `` in the dark theme: a shade above the page.
   static const Color darkCodeBg = Color(0xFF26262B);
+
+  /// The fill of a button in the format panel, and of a selected size chip, in the dark
+  /// theme. There is no dark mock-up, so these follow the card's rule: a lifted near-black,
+  /// and a dim version of the amber wash.
+  static const Color darkPanelButton = Color(0xFF2A2A2F);
+  static const Color darkChipSelected = Color(0xFF3B3218);
 }
 
 /// Layout numbers, in logical pixels.
@@ -268,6 +278,37 @@ abstract final class NotesEditorMetrics {
   static const double toolbarIconSize = 21;
 }
 
+/// The format panel: a sheet that slides up from the bottom of the editor.
+///
+/// The mock-up puts it at y = 420 on the 412 x 900 canvas, which is where a sheet covering
+/// the lower half lands anyway, so the height is left to the content rather than fixed.
+abstract final class NotesPanelMetrics {
+  static const double radius = 28;
+  static const double sideInset = 26;
+
+  /// The grab handle at the very top.
+  static const double handleWidth = 40;
+  static const double handleHeight = 4;
+
+  static const double titleSize = 19;
+  static const double closeDiameter = 30;
+
+  /// A row of buttons: 50 tall, 12 between rows.
+  static const double buttonHeight = 50;
+  static const double buttonRadius = 12;
+  static const double rowGap = 12;
+
+  /// The size chips are shorter than the buttons; 13 of radius is the design's rounding.
+  static const double chipHeight = 44;
+  static const double chipRadius = 13;
+
+  /// The font-size slider.
+  static const double trackHeight = 5;
+  static const double thumbRadius = 11;
+  static const double sliderMarkSize = 13;
+  static const double sliderMarkBigSize = 19;
+}
+
 /// Weights shared by both pages.
 ///
 /// The app asks for the system font and never sets `fontFamily`, so the only lever over how
@@ -355,6 +396,8 @@ class NotesPalette {
     required this.ring,
     required this.toolbar,
     required this.codeBackground,
+    required this.panelButton,
+    required this.chipSelected,
     required this.isDark,
   });
 
@@ -371,6 +414,12 @@ class NotesPalette {
 
   /// The wash behind inline `` `code` ``.
   final Color codeBackground;
+
+  /// The fill of a button in the format panel.
+  final Color panelButton;
+
+  /// The fill of the selected size chip in the format panel.
+  final Color chipSelected;
 
   /// The accent when it has to be legible as text.
   final Color accentText;
@@ -391,6 +440,8 @@ class NotesPalette {
     ring: NotesColors.disabled,
     toolbar: NotesColors.toolbarBg,
     codeBackground: NotesColors.codeBg,
+    panelButton: NotesColors.panelButton,
+    chipSelected: NotesColors.chipSelected,
     isDark: false,
   );
 
@@ -407,6 +458,8 @@ class NotesPalette {
     ring: NotesColors.darkRing,
     toolbar: NotesColors.darkCard,
     codeBackground: NotesColors.darkCodeBg,
+    panelButton: NotesColors.darkPanelButton,
+    chipSelected: NotesColors.darkChipSelected,
     isDark: true,
   );
 
