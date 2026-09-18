@@ -120,6 +120,10 @@ abstract final class NotesStrings {
   static const String windowRestore = '还原';
   static const String windowClose = '关闭';
 
+  /// The button in the band that folds the note list away, and puts it back.
+  static const String desktopSidebarCollapse = '收起列表';
+  static const String desktopSidebarExpand = '展开列表';
+
   /// Shown instead of the editor when the note could not be read. The note stays
   /// read-only until the user retries, so that an empty editor can never replace
   /// contents the app never managed to read.

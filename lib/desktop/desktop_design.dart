@@ -186,24 +186,24 @@ abstract final class NotesDesktopMetrics {
   /// is removed and the app's own band takes its place.
   static const double band = 38;
 
-  /// The sidebar title: how big it is, and how far it hangs below the band.
+  /// The sidebar title, which starts the sidebar's own column rather than sitting in the band.
   ///
-  /// The word no longer sits inside the band. It hangs from the band's bottom edge with its top
-  /// [sidebarTitleLift] above that line, so it belongs to the note list underneath rather than
-  /// to the window's chrome - which is where the user asked for it, after the centred position
-  /// the design had put it in read as "jammed against the top of the window".
+  /// It began life centred in the band, then lower in the band, and neither was what the user
+  /// wanted: the word belongs *under* the tab strip, heading the note list, with nothing of it
+  /// left up in the window's chrome. [sidebarTitleTop] is the gap between the line the band
+  /// ends at and the top of the row holding it.
   ///
-  /// `height: 1.0` on the text makes its line box exactly [sidebarTitleSize] tall, so the room
-  /// it needs below the band can be worked out rather than guessed.
+  /// `height: 1.0` keeps the text's line box exactly [sidebarTitleSize] tall, so the row's
+  /// height and the room the title takes are worked out rather than guessed.
   static const double sidebarTitleSize = 17;
-  static const double sidebarTitleLift = 4;
+  static const double sidebarTitleTop = 6;
 
-  /// The band a sidebar title hung below the band needs kept clear of the search field.
+  /// What is left of the band's left-hand part once the note list is folded away.
   ///
-  /// Everything of the title that falls below the line is inside the sidebar's own column, and
-  /// the search field has to start under it.
-  static const double sidebarTitleRoom =
-      sidebarTitleSize - sidebarTitleLift + 14;
+  /// The button that folds it has to stay reachable, so the band keeps a narrow rail for it
+  /// and the tab strip starts after that - the same way it starts after the whole sidebar when
+  /// the list is open.
+  static const double sidebarRail = 46;
 
   /// The window buttons at the right-hand end of that band.
   static const double windowButtonWidth = 46;

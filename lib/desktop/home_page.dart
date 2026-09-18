@@ -63,6 +63,12 @@ class _NotesHomePageState extends State<NotesHomePage>
   String? _error;
   double _sidebarWidth = NotesDesktopMetrics.sidebarDefault;
 
+  /// Whether the note list is folded away.
+  ///
+  /// Not persisted: `settings.dart` still writes nothing on Windows (HANDOFF_PHASE6 §3.4), so
+  /// there is nowhere to put it yet.
+  bool _sidebarCollapsed = false;
+
   @override
   void initState() {
     super.initState();
@@ -211,7 +217,9 @@ class _NotesHomePageState extends State<NotesHomePage>
           builder: (BuildContext context, BoxConstraints constraints) {
             // One width for both the band's head and the sidebar itself: they are two rows of
             // the same column, and the seam between them has to fall in the same place.
-            final double sidebar = _sidebarWidthFor(constraints.maxWidth);
+            final double sidebar = _sidebarCollapsed
+                ? 0
+                : _sidebarWidthFor(constraints.maxWidth);
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
@@ -220,8 +228,7 @@ class _NotesHomePageState extends State<NotesHomePage>
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: <Widget>[
-                      SizedBox(width: sidebar, child: _sidebar(p)),
-                      _resizeHandle(p),
+                      _collapsibleSidebar(p, sidebar),
                       Expanded(child: _editorArea(p)),
                     ],
                   ),
@@ -260,7 +267,12 @@ class _NotesHomePageState extends State<NotesHomePage>
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          SizedBox(width: sidebar, child: _sidebarHead(p)),
+          SizedBox(
+            // Folded away, the band keeps a rail: a button that hides itself cannot be pressed
+            // again.
+            width: _sidebarCollapsed ? NotesDesktopMetrics.sidebarRail : sidebar,
+            child: _sidebarHead(p),
+          ),
           Expanded(child: _tabStrip(p)),
           _windowButtons(p),
         ],
@@ -268,23 +280,55 @@ class _NotesHomePageState extends State<NotesHomePage>
     );
   }
 
+  /// The band's left-hand part: the one button that folds the note list away, and back.
+  ///
+  /// The title and the new-note button used to live up here. They now start the list instead,
+  /// under the line the band ends at.
   Widget _sidebarHead(NotesDesktopPalette p) {
     return ColoredBox(
       color: p.page,
-      // The title used to live here. It now hangs below this band instead - see `_sidebar` -
-      // because a word placed in the band can only ever sit *in* the band, and the user wanted
-      // it sitting on the line the band ends at. What is left here is the button.
       child: Row(
         children: <Widget>[
-          const Spacer(),
-          _FlatButton(
+          const SizedBox(width: 6),
+          _BandButton(
             palette: p,
-            onPressed: () => unawaited(_newNote()),
-            icon: Icons.add,
-            label: NotesStrings.desktopNewNote,
+            icon: _sidebarCollapsed ? Icons.menu : Icons.menu_open,
+            tooltip: _sidebarCollapsed
+                ? NotesStrings.desktopSidebarExpand
+                : NotesStrings.desktopSidebarCollapse,
+            onPressed: () =>
+                setState(() => _sidebarCollapsed = !_sidebarCollapsed),
           ),
-          const SizedBox(width: 18),
         ],
+      ),
+    );
+  }
+
+  /// The note list and the handle that widens it, folded away as one piece.
+  ///
+  /// The width is animated but the contents are not: the list keeps the width it was laid out
+  /// at and is clipped on the way in and out. Squeezing it instead would rebuild every row at
+  /// every frame of the animation, and overflow while it did.
+  Widget _collapsibleSidebar(NotesDesktopPalette p, double sidebar) {
+    const double handle = NotesDesktopMetrics.sidebarHandle;
+    final double natural = sidebar + handle;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 150),
+      curve: Curves.easeOutCubic,
+      width: _sidebarCollapsed ? 0 : natural,
+      child: ClipRect(
+        child: OverflowBox(
+          alignment: Alignment.centerLeft,
+          minWidth: natural,
+          maxWidth: natural,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              SizedBox(width: sidebar, child: _sidebar(p)),
+              _resizeHandle(p),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -366,76 +410,81 @@ class _NotesHomePageState extends State<NotesHomePage>
     final List<Note> notes = _visibleNotes;
     return ColoredBox(
       color: p.page,
-      child: Stack(
-        // The title hangs over the top edge of this box, which is the line the band ends at.
-        clipBehavior: Clip.none,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              const SizedBox(
-                height: NotesDesktopMetrics.sidebarTitleRoom,
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(18, 0, 18, 0),
-                child: _SearchField(
-                  palette: p,
-                  controller: _search,
-                  onChanged: (String value) => setState(() => _query = value),
-                ),
-              ),
-              const SizedBox(height: 14),
-              _sectionLabel(p, NotesStrings.desktopNoteCountSection),
-              Expanded(
-                child: ListView.builder(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  itemCount: notes.length,
-                  itemBuilder: (BuildContext context, int index) {
-                    final Note note = notes[index];
-                    return _NoteRow(
-                      note: note,
-                      palette: p,
-                      selected: _open?.file.path == note.file.path,
-                      onTap: () => unawaited(_openNote(note)),
-                    );
-                  },
-                ),
-              ),
-              if (notes.isEmpty && !_loading)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 8),
-                  child: Text(
-                    _query.isEmpty
-                        ? NotesStrings.emptyTitle
-                        : NotesStrings.searchEmptyTitle,
-                    style: TextStyle(fontSize: 13, color: p.faint),
+          // The title and its button head the list. They sit below the line the band ends at,
+          // so neither of them is part of the window's chrome any more.
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              22,
+              NotesDesktopMetrics.sidebarTitleTop,
+              18,
+              0,
+            ),
+            child: Row(
+              children: <Widget>[
+                Text(
+                  NotesStrings.listTitle,
+                  style: TextStyle(
+                    fontSize: NotesDesktopMetrics.sidebarTitleSize,
+                    // Exactly the font size tall, so the row's height is the button's.
+                    height: 1.0,
+                    fontWeight: NotesDesktopType.strong,
+                    color: p.ink,
                   ),
                 ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(22, 6, 22, 12),
-                child: Text(
-                  NotesStrings.desktopNoteTotal(_notes.length),
-                  style: TextStyle(fontSize: 12, color: p.faint),
+                const Spacer(),
+                _FlatButton(
+                  palette: p,
+                  onPressed: () => unawaited(_newNote()),
+                  icon: Icons.add,
+                  label: NotesStrings.desktopNewNote,
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-          // The word sits with its top just above the line the band ends at, so it reads as the
-          // heading of the list rather than as part of the window's chrome. Drawn over the
-          // sidebar rather than inside the band, because a child of the band cannot paint below
-          // it - the sidebar is painted afterwards and would cover it.
-          Positioned(
-            left: 22,
-            top: -NotesDesktopMetrics.sidebarTitleLift,
-            child: Text(
-              NotesStrings.listTitle,
-              style: TextStyle(
-                fontSize: NotesDesktopMetrics.sidebarTitleSize,
-                // Exactly the font size tall, so the room reserved above is the room it takes.
-                height: 1.0,
-                fontWeight: NotesDesktopType.strong,
-                color: p.ink,
+          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 0, 18, 0),
+            child: _SearchField(
+              palette: p,
+              controller: _search,
+              onChanged: (String value) => setState(() => _query = value),
+            ),
+          ),
+          const SizedBox(height: 14),
+          _sectionLabel(p, NotesStrings.desktopNoteCountSection),
+          Expanded(
+            child: ListView.builder(
+              padding: const EdgeInsets.only(bottom: 8),
+              itemCount: notes.length,
+              itemBuilder: (BuildContext context, int index) {
+                final Note note = notes[index];
+                return _NoteRow(
+                  note: note,
+                  palette: p,
+                  selected: _open?.file.path == note.file.path,
+                  onTap: () => unawaited(_openNote(note)),
+                );
+              },
+            ),
+          ),
+          if (notes.isEmpty && !_loading)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 8),
+              child: Text(
+                _query.isEmpty
+                    ? NotesStrings.emptyTitle
+                    : NotesStrings.searchEmptyTitle,
+                style: TextStyle(fontSize: 13, color: p.faint),
               ),
+            ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(22, 6, 22, 12),
+            child: Text(
+              NotesStrings.desktopNoteTotal(_notes.length),
+              style: TextStyle(fontSize: 12, color: p.faint),
             ),
           ),
         ],
@@ -871,6 +920,62 @@ class _TabPainter extends CustomPainter {
 }
 
 enum _WindowButtonKind { minimize, maximize, restore, close }
+
+/// A square icon button for the band, at the same weight as the note list's own buttons.
+///
+/// The window buttons next to it are drawn glyphs because they have to match Windows' hairlines.
+/// This one is a Material icon, because there is no OS glyph for folding a panel away.
+class _BandButton extends StatefulWidget {
+  const _BandButton({
+    required this.palette,
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  final NotesDesktopPalette palette;
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onPressed;
+
+  @override
+  State<_BandButton> createState() => _BandButtonState();
+}
+
+class _BandButtonState extends State<_BandButton> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final NotesDesktopPalette p = widget.palette;
+    return Tooltip(
+      message: widget.tooltip,
+      waitDuration: const Duration(milliseconds: 600),
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (PointerEnterEvent _) => setState(() => _hovered = true),
+        onExit: (PointerExitEvent _) => setState(() => _hovered = false),
+        child: GestureDetector(
+          onTap: widget.onPressed,
+          child: Container(
+            width: 34,
+            height: 26,
+            decoration: BoxDecoration(
+              color: _hovered ? p.hover : Colors.transparent,
+              borderRadius:
+                  BorderRadius.circular(NotesDesktopMetrics.radiusControl),
+            ),
+            child: Icon(
+              widget.icon,
+              size: 16,
+              color: _hovered ? p.ink : p.sub,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 /// A window button, drawn rather than typed, so the glyphs are the hairlines Windows uses.
 class _WindowButton extends StatefulWidget {
