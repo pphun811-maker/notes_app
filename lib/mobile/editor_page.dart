@@ -25,10 +25,9 @@ import 'widgets.dart';
 /// `ed4_format.png`; the saving rules are [NoteEditorController]'s, shared with the
 /// desktop editor so the two cannot drift apart.
 ///
-/// Two things are deliberately **not** here yet, and the buttons for them say so
-/// rather than pretending to work:
-///
-/// * the format panel (font size, and the rest of the rows in `ed4_format.png`).
+/// The body is painted as formatted Markdown by [MarkdownEditingController] while the file
+/// on disk keeps every marker exactly as typed, and the title field is the file's name,
+/// so editing it renames the file.
 class EditorPage extends StatefulWidget {
   const EditorPage({super.key, required this.store, required this.file});
 
