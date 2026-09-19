@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 // `AppExitResponse` is declared in dart:ui and is not re-exported by material.
 import 'dart:ui' show AppExitResponse;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -14,6 +16,7 @@ import '../settings.dart';
 import '../strings.dart';
 import 'desktop_design.dart';
 import 'editor_pane.dart';
+import 'note_tabs.dart';
 import 'window_channel.dart';
 
 /// The Windows interface.
@@ -52,19 +55,39 @@ class _NotesHomePageState extends State<NotesHomePage>
   late final NotesStore _store =
       widget.store ?? NotesStore(Directory(NotesStore.defaultDirectoryPath));
 
-  /// The open pane, so the shell can ask it to write before it is replaced or the window
-  /// closes. A new key is minted per note, which is also what gives each note a fresh editor.
-  GlobalKey<EditorPaneState> _editorKey = GlobalKey<EditorPaneState>();
-  final TextEditingController _search = TextEditingController();  SystemAccent _accent = SystemAccent.fallback;
+  /// One editor per open note, kept alive whether or not it is the one on screen.
+  ///
+  /// Keyed by path so the shell can ask a particular tab to write - before it is closed, and
+  /// before the window goes away. The editors stay mounted inside an [IndexedStack], which is
+  /// what makes switching tabs free: nothing is rebuilt, so the text, the selection and the
+  /// undo history are all still there.
+  final Map<String, GlobalKey<EditorPaneState>> _paneKeys =
+      <String, GlobalKey<EditorPaneState>>{};
+
+  final TextEditingController _search = TextEditingController();
+
+  SystemAccent _accent = SystemAccent.fallback;
   List<Note> _notes = <Note>[];
 
-  /// The note in the editor, if any.
-  Note? _open;
+  /// The notes that are open, and which of them is on screen.
+  NoteTabs _tabs = const NoteTabs.empty();
   bool _loading = true;
-  bool _dirty = false;
   String _query = '';
   String? _error;
   double _sidebarWidth = NotesDesktopMetrics.sidebarDefault;
+
+  /// How far the tab strip has been scrolled, in logical pixels.
+  ///
+  /// Scrolled by hand rather than with a `ScrollView`: the strip is also the window's drag
+  /// handle, and a scroll view sitting on top of it would swallow the drags that move the
+  /// window before they ever reached it.
+  double _tabScroll = 0;
+
+  /// The width the strip was last laid out with, for the scrolling decisions.
+  double _tabStripWidth = 0;
+
+  /// The space between two tabs.
+  static const double _tabGap = 2;
 
   /// The notes folder's watcher, and the delay that turns its bursts into one refresh.
   StreamSubscription<FileSystemEvent>? _watch;
@@ -155,11 +178,19 @@ class _NotesHomePageState extends State<NotesHomePage>
   /// The window is going away: put the last keystrokes on disk before it does.
   ///
   /// `dispose()` cannot await, and on Windows the window close arrives as a request the app can
-  /// still answer, so this is the moment to write.
+  /// still answer, so this is the moment to write. Every open note, not just the one on screen:
+  /// the others are hidden, not closed, and their last keystrokes are just as real.
   @override
   Future<AppExitResponse> didRequestAppExit() async {
-    await _editorKey.currentState?.flush();
+    await _flushAllTabs();
     return AppExitResponse.exit;
+  }
+
+  /// Writes every open note that has something pending.
+  Future<void> _flushAllTabs() async {
+    for (final GlobalKey<EditorPaneState> key in _paneKeys.values) {
+      await key.currentState?.flush();
+    }
   }
 
   @override
@@ -168,7 +199,7 @@ class _NotesHomePageState extends State<NotesHomePage>
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden) {
-      unawaited(_editorKey.currentState?.flush());
+      unawaited(_flushAllTabs());
       return;
     }
     // Coming back to the window is the moment to re-read the folder. A watch can have ended
@@ -201,12 +232,11 @@ class _NotesHomePageState extends State<NotesHomePage>
         _notes = notes;
         _loading = false;
         _error = null;
-        // The open note can have gone: deleted here, renamed by Syncthing, or moved away.
-        final Note? open = _open;
-        if (open != null &&
-            !notes.any((Note n) => n.file.path == open.file.path)) {
-          _open = null;
-        }
+        // A note that is open can have gone: deleted here, renamed by Syncthing, or moved away.
+        // Its tab goes with it - an editor left open over a file that is no longer there is an
+        // editor that would write it back.
+        _tabs = _tabs.retainOnly(notes.map((Note n) => n.file));
+        _prunePaneKeys();
       });
       // Watched from here rather than from `initState` because the folder has to exist before
       // it can be watched, and this is the one place that guarantees it does.
@@ -267,18 +297,23 @@ class _NotesHomePageState extends State<NotesHomePage>
     });
   }
 
-  /// Asks the open note whether the file underneath it has changed.
+  /// Asks every open note whether the file underneath it has changed.
   ///
-  /// The editor decides what to do about the answer: nothing, quietly take the file's version
-  /// because nothing here was unsaved, or stop saving and put the question to the user.
+  /// All of them, not just the one on screen: a hidden tab is still an editor holding text that
+  /// a save could put over somebody else's. Each editor decides what to do about the answer -
+  /// nothing, quietly take the file's version because nothing there was unsaved, or stop saving
+  /// and put the question to the user.
   Future<void> _checkOpenNote() async {
-    final EditorPaneState? pane = _editorKey.currentState;
-    if (pane == null) return;
-    final ExternalChange change = await pane.applyExternalChange();
-    if (!mounted) return;
-    if (change == ExternalChange.reloaded) {
-      _toast(NotesStrings.externalChangeReloaded);
+    bool reloaded = false;
+    for (final GlobalKey<EditorPaneState> key in _paneKeys.values) {
+      final EditorPaneState? pane = key.currentState;
+      if (pane == null) continue;
+      if (await pane.applyExternalChange() == ExternalChange.reloaded) {
+        reloaded = true;
+      }
     }
+    if (!mounted || !reloaded) return;
+    _toast(NotesStrings.externalChangeReloaded);
   }
 
   Future<void> _newNote() async {
@@ -290,7 +325,7 @@ class _NotesHomePageState extends State<NotesHomePage>
         (Note n) => n.file.path == file.path,
         orElse: () => Note(file: file, modified: DateTime.now(), preview: ''),
       );
-      await _openNote(created);
+      _openNote(created);
     } on FileSystemException catch (error) {
       _toast(NotesStrings.createFailed(
         error.osError?.message ?? error.message,
@@ -298,29 +333,62 @@ class _NotesHomePageState extends State<NotesHomePage>
     }
   }
 
-  Future<void> _openNote(Note note) async {
-    if (_open?.file.path == note.file.path) return;
-    // Whatever is in the pane now goes to disk before it is replaced, and the await matters:
-    // the pane is disposed as soon as `_open` changes, and `dispose()` cannot wait.
-    await _editorKey.currentState?.flush();
+  /// Opens a note, or brings its tab forward when it is already open.
+  ///
+  /// Nothing is flushed on the way: the note being left behind keeps its editor mounted, so
+  /// there is no moment where its text exists only in a widget that is about to be destroyed.
+  /// Its own autosave is what puts it on disk, exactly as if it were still on screen.
+  void _openNote(Note note) {
+    _setTabs(_tabs.open(note.file));
+    _scrollTabIntoView();
+  }
+
+  /// Closes the tab at [index], writing it first.
+  ///
+  /// The await matters here in a way it does not when switching: closing really does destroy
+  /// the editor, and `dispose()` cannot wait for a write.
+  Future<void> _closeTab(int index) async {
+    if (index < 0 || index >= _tabs.length) return;
+    await _paneKeys[_tabs.files[index].path]?.currentState?.flush();
     if (!mounted) return;
+    _setTabs(_tabs.close(index));
+  }
+
+  /// Closes whichever tab is on screen.
+  ///
+  /// The shortcut binding needs a plain `void` callback, which this is; [_closeTab] is the one
+  /// that awaits, and the write it waits for cannot be awaited from a key handler.
+  void _closeCurrentTabNow() => unawaited(_closeCurrentTab());
+
+  /// Closes whichever tab is on screen.
+  Future<void> _closeCurrentTab() => _closeTab(_tabs.currentIndex);
+
+  /// Replaces the tab set, and drops the editors of any tab that has gone.
+  void _setTabs(NoteTabs next) {
+    if (next == _tabs) return;
     setState(() {
-      // A fresh key, so the next note gets a fresh controller rather than an old one pointed
-      // at a different file.
-      _editorKey = GlobalKey<EditorPaneState>();
-      _open = note;
-      _dirty = false;
+      _tabs = next;
+      _prunePaneKeys();
     });
   }
 
-  Future<void> _closeNote() async {
-    await _editorKey.currentState?.flush();
-    if (!mounted) return;
-    setState(() {
-      _open = null;
-      _dirty = false;
-    });
+  void _prunePaneKeys() {
+    final Set<String> live = _tabs.files.map((File f) => f.path).toSet();
+    _paneKeys.removeWhere(
+      (String path, GlobalKey<EditorPaneState> _) => !live.contains(path),
+    );
   }
+
+  GlobalKey<EditorPaneState> _paneKeyFor(File file) => _paneKeys.putIfAbsent(
+        file.path,
+        () => GlobalKey<EditorPaneState>(),
+      );
+
+  /// The note behind a tab, for the date shown under its title.
+  Note _noteFor(File file) => _notes.firstWhere(
+        (Note n) => n.file.path == file.path,
+        orElse: () => Note(file: file, modified: DateTime.now(), preview: ''),
+      );
 
   void _toast(String message) {
     if (!mounted) return;
@@ -353,6 +421,10 @@ class _NotesHomePageState extends State<NotesHomePage>
         // whatever holds the focus.
         const SingleActivator(LogicalKeyboardKey.keyB, control: true):
             _toggleSidebar,
+        // Closing the note being read, exactly as a browser closes its tab. Nothing is deleted:
+        // the file is written and the tab goes away.
+        const SingleActivator(LogicalKeyboardKey.keyW, control: true):
+            _closeCurrentTabNow,
       },
       child: Focus(
         // Without something holding the focus the page never sees a key at all.
@@ -517,35 +589,113 @@ class _NotesHomePageState extends State<NotesHomePage>
   /// The empty part of the strip is what moves the window: pressing it hands the window to the
   /// OS for a caption drag, which is also what keeps Aero snap and double-click-to-maximise
   /// working without reimplementing either.
+  ///
+  /// Tabs narrow as more of them are opened, and past [NotesDesktopMetrics.tabMinWidth] the
+  /// strip scrolls instead. Scrolling is driven by the wheel rather than by dragging, and the
+  /// tabs are a plain [Row] rather than a `ScrollView` on purpose: a scroll view laid over the
+  /// strip would claim the drags that belong to the window, and the strip is the only place the
+  /// window can be dragged from.
   Widget _tabStrip(NotesDesktopPalette p) {
-    return ColoredBox(
-      color: p.frame,
-      child: Stack(
-        children: <Widget>[
-          Positioned.fill(
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onPanDown: (DragDownDetails _) => unawaited(NotesWindow.startDrag()),
-              onDoubleTap: () => unawaited(NotesWindow.toggleMaximize()),
-            ),
-          ),
-          if (_open != null)
-            Positioned(
-              left: 0,
-              top: 0,
-              bottom: 0,
-              child: _Tab(
-                title: Note.fileNameWithoutExtension(_open!.file),
-                palette: p,
-                selected: true,
-                dirty: _dirty,
-                onSelect: () {},
-                onClose: () => unawaited(_closeNote()),
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        // Kept for the scrolling decisions, which are made outside a layout pass.
+        _tabStripWidth = constraints.maxWidth;
+        final double tabWidth = _tabWidthFor(constraints.maxWidth);
+        const double gap = _tabGap;
+        final double content = _tabs.isEmpty
+            ? 0
+            : _tabs.length * tabWidth + (_tabs.length - 1) * gap;
+        final double furthest = math.max(0, content - constraints.maxWidth);
+        final double scroll = _tabScroll.clamp(0, furthest);
+
+        return Listener(
+          onPointerSignal: (PointerSignalEvent event) {
+            if (event is! PointerScrollEvent || furthest <= 0) return;
+            setState(() {
+              _tabScroll = (scroll + event.scrollDelta.dy).clamp(0, furthest);
+            });
+          },
+          child: ClipRect(
+            child: ColoredBox(
+              color: p.frame,
+              child: Stack(
+                children: <Widget>[
+                  Positioned.fill(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onPanDown: (DragDownDetails _) =>
+                          unawaited(NotesWindow.startDrag()),
+                      onDoubleTap: () =>
+                          unawaited(NotesWindow.toggleMaximize()),
+                    ),
+                  ),
+                  Positioned(
+                    left: -scroll,
+                    top: 0,
+                    bottom: 0,
+                    child: Row(
+                      children: <Widget>[
+                        for (int i = 0; i < _tabs.length; i++) ...<Widget>[
+                          if (i > 0) const SizedBox(width: gap),
+                          _Tab(
+                            width: tabWidth,
+                            title: Note.fileNameWithoutExtension(_tabs.files[i]),
+                            palette: p,
+                            selected: i == _tabs.currentIndex,
+                            dirty: _paneKeys[_tabs.files[i].path]
+                                    ?.currentState
+                                    ?.isDirty ??
+                                false,
+                            onSelect: () => _setTabs(_tabs.select(i)),
+                            onClose: () => unawaited(_closeTab(i)),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
-        ],
-      ),
+          ),
+        );
+      },
     );
+  }
+
+  /// How wide each tab is drawn.
+  ///
+  /// The design's [NotesDesktopMetrics.tabWidth] while they all fit, then narrower as more
+  /// notes are opened, and never below [NotesDesktopMetrics.tabMinWidth]: a tab too narrow to
+  /// show any of its own title is not a tab, it is a coloured sliver. Past that point the strip
+  /// scrolls.
+  double _tabWidthFor(double available) {
+    if (_tabs.isEmpty || available <= 0) return NotesDesktopMetrics.tabWidth;
+    final double fit =
+        (available - _tabGap * (_tabs.length - 1)) / _tabs.length;
+    return fit.clamp(NotesDesktopMetrics.tabMinWidth, NotesDesktopMetrics.tabWidth);
+  }
+
+  /// Scrolls the strip so the current tab is on screen.
+  ///
+  /// Needed whenever the current tab changes without a click on the strip itself - opening a
+  /// note from the list, closing one, Ctrl+W - because those can select a tab that is scrolled
+  /// out of sight, and a current tab nobody can see is a tab nobody can close.
+  void _scrollTabIntoView() {
+    if (_tabStripWidth <= 0) return;
+    final double tabWidth = _tabWidthFor(_tabStripWidth);
+    final double left = _tabs.currentIndex * (tabWidth + _tabGap);
+    double scroll = _tabScroll;
+    if (left < scroll) {
+      scroll = left;
+    } else if (left + tabWidth > scroll + _tabStripWidth) {
+      scroll = left + tabWidth - _tabStripWidth;
+    }
+    if (scroll == _tabScroll) return;
+    // Called from the middle of a tap handler or a key handler, both of which can be inside a
+    // build already.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() => _tabScroll = math.max(0, scroll));
+    });
   }
 
   Widget _windowButtons(NotesDesktopPalette p) {
@@ -643,8 +793,10 @@ class _NotesHomePageState extends State<NotesHomePage>
                 return _NoteRow(
                   note: note,
                   palette: p,
-                  selected: _open?.file.path == note.file.path,
-                  onTap: () => unawaited(_openNote(note)),
+                  // The row marks the note being edited, not every note that happens to be
+                  // open: the open ones are what the tab strip is for.
+                  selected: _tabs.current?.path == note.file.path,
+                  onTap: () => _openNote(note),
                 );
               },
             ),
@@ -711,8 +863,7 @@ class _NotesHomePageState extends State<NotesHomePage>
         detail: NotesStrings.errorFolder(_error!, _store.directory.path),
       );
     }
-    final Note? open = _open;
-    if (open == null) {
+    if (_tabs.isEmpty) {
       return _CenteredMessage(
         palette: p,
         icon: Icons.article_outlined,
@@ -720,34 +871,37 @@ class _NotesHomePageState extends State<NotesHomePage>
         detail: NotesStrings.nothingOpenDetail,
       );
     }
-    return EditorPane(
-      // A new key per note, so switching builds a new controller rather than pointing an old
-      // one at a different file.
-      key: _editorKey,
-      store: _store,
-      file: open.file,
-      modified: open.modified,
-      palette: p,
-      onRenamed: (File renamed) async {
-        // The file moved, so the note the shell is holding has to move with it - otherwise the
-        // next refresh would decide the open note had been deleted and close it.
-        await _refresh();
-        if (!mounted) return;
-        setState(() {
-          _open = _notes.firstWhere(
-            (Note n) => n.file.path == renamed.path,
-            orElse: () => Note(
-              file: renamed,
-              modified: DateTime.now(),
-              preview: open.preview,
-            ),
-          );
-        });
-      },
-      onDirtyChanged: (bool dirty) {
-        if (dirty != _dirty) setState(() => _dirty = dirty);
-      },
+    // Every open note keeps its editor mounted; the stack decides which one is painted. That is
+    // what makes switching tabs free - the text, the caret, the scroll position and the undo
+    // history of the note being left are all still there when it is switched back to, which is
+    // the whole point of having tabs rather than reopening the note.
+    return IndexedStack(
+      index: _tabs.currentIndex,
+      sizing: StackFit.expand,
+      children: <Widget>[
+        for (final File file in _tabs.files)
+          EditorPane(
+            key: _paneKeyFor(file),
+            store: _store,
+            file: file,
+            modified: _noteFor(file).modified,
+            palette: p,
+            onRenamed: (File renamed) => _afterRename(file, renamed),
+            // Any change to what is unsaved redraws the strip: the dot on the tab is the only
+            // sign the user gets that this note has something still to write.
+            onDirtyChanged: (bool _) => setState(() {}),
+          ),
+      ],
     );
+  }
+
+  /// Follows a rename through the tab set and the note list.
+  ///
+  /// The tab has to be moved to the new path before anything refreshes, or the refresh would
+  /// decide the note it is holding has been deleted and close the editor the user is typing in.
+  Future<void> _afterRename(File from, File to) async {
+    _setTabs(_tabs.replace(from, to));
+    await _refresh();
   }
 }
 
@@ -965,6 +1119,7 @@ class _NoteRowState extends State<_NoteRow> {
 /// below instead of resting a rectangle on a line.
 class _Tab extends StatefulWidget {
   const _Tab({
+    required this.width,
     required this.title,
     required this.palette,
     required this.selected,
@@ -972,6 +1127,10 @@ class _Tab extends StatefulWidget {
     required this.onSelect,
     required this.onClose,
   });
+
+  /// How wide this tab is drawn. Decided by the strip, which narrows them as more notes are
+  /// opened and scrolls once they reach [NotesDesktopMetrics.tabMinWidth].
+  final double width;
 
   final String title;
   final NotesDesktopPalette palette;
@@ -992,14 +1151,21 @@ class _TabState extends State<_Tab> {
     final NotesDesktopPalette p = widget.palette;
     final bool selected = widget.selected;
     return SizedBox(
-      width: NotesDesktopMetrics.tabWidth,
+      width: widget.width,
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
         onEnter: (PointerEnterEvent _) => setState(() => _hovered = true),
         onExit: (PointerExitEvent _) => setState(() => _hovered = false),
-        child: GestureDetector(
-          onTap: widget.onSelect,
-          child: CustomPaint(
+        // A middle click closes the tab, the way it does in every browser. Wrapped around the
+        // gesture detector rather than folded into it: `GestureDetector` has no middle-click
+        // callback, and this must not swallow the left-click that selects the tab.
+        child: Listener(
+          onPointerDown: (PointerDownEvent event) {
+            if (event.buttons == kMiddleMouseButton) widget.onClose();
+          },
+          child: GestureDetector(
+            onTap: widget.onSelect,
+            child: CustomPaint(
             painter: _TabPainter(
               fill: selected
                   ? p.surface
@@ -1056,6 +1222,7 @@ class _TabState extends State<_Tab> {
               ),
             ),
           ),
+        ),
         ),
       ),
     );

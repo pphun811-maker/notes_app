@@ -115,6 +115,13 @@ class EditorPaneState extends State<EditorPane> {
   /// closes, so a switch of notes can never lose the last keystrokes.
   Future<void> flush() => _editor.flush();
 
+  /// Whether this note has text that is not on disk yet.
+  ///
+  /// The shell reads this to draw the dot on the tab. The pane owns the controller, so the pane
+  /// is the only thing that knows - and with every open note keeping its editor mounted, there
+  /// is one of these per tab.
+  bool get isDirty => _editor.hasUnsavedChanges;
+
   /// Saves and waits for the file. Leaving is not allowed to race the write.
   Future<void> close() => _editor.close();
 

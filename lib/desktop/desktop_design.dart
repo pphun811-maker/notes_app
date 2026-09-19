@@ -231,6 +231,13 @@ abstract final class NotesDesktopMetrics {
   static const double listTextLeft = 36;
 
   static const double tabWidth = 176;
+
+  /// The narrowest a tab is drawn before the strip scrolls instead.
+  ///
+  /// Wide enough for a few characters and the close button. Below this the title would be one
+  /// letter and a dot, which is not something anybody can pick a note out of.
+  static const double tabMinWidth = 96;
+
   static const double tabRadius = 9;
 
   /// The paragraph column. Wider than this and the eye loses the line it was on.
