@@ -1,8 +1,10 @@
-/// The handful of things the app remembers between visits.
+﻿/// The handful of things the app remembers between visits.
 ///
-/// Two so far: the editor's text settings (font size, line height, and whether the body is
-/// drawn in the monospace face), and which conflict-copy notices the user has swiped away.
-/// They are stored in the app's **private** directory, not in the notes folder - the notes
+/// The editor's text settings (font size, line height, and whether the body is drawn in the
+/// monospace face), which conflict-copy notices the user has swiped away, and whether the
+/// desktop's note list is folded away.
+///
+/// They are stored in a directory belonging to the app, not in the notes folder - the notes
 /// folder is shared with the PC through Syncthing, and a settings file appearing there would
 /// sync to the other machine and show up as a stray file in the folder the user browses.
 ///
@@ -16,12 +18,13 @@ import 'package:flutter/services.dart';
 
 import 'design.dart';
 
-/// The editor's remembered text settings.
+/// The editor's remembered text settings, plus the two bits of desktop state.
 class NotesSettings {
   const NotesSettings({
     required this.fontSize,
     required this.lineHeight,
     required this.monoFont,
+    this.sidebarCollapsed = false,
   });
 
   /// What a fresh install uses: the design's size and the line height the user settled on.
@@ -35,22 +38,32 @@ class NotesSettings {
   final double lineHeight;
   final bool monoFont;
 
+  /// Whether the Windows interface's note list is folded away.
+  ///
+  /// Desktop-only, and given a default rather than being `required`: the phone has no sidebar,
+  /// and every existing `NotesSettings(...)` call site is about the editor.
+  final bool sidebarCollapsed;
+
   NotesSettings copyWith({
     double? fontSize,
     double? lineHeight,
     bool? monoFont,
+    bool? sidebarCollapsed,
   }) {
     return NotesSettings(
       fontSize: fontSize ?? this.fontSize,
       lineHeight: lineHeight ?? this.lineHeight,
       monoFont: monoFont ?? this.monoFont,
+      sidebarCollapsed: sidebarCollapsed ?? this.sidebarCollapsed,
     );
   }
 
   /// One line per value, `key=value`. A file small enough that a format with any more
   /// machinery in it would be the wrong answer.
-  String encode() =>
-      'fontSize=$fontSize\nlineHeight=$lineHeight\nmonoFont=$monoFont\n';
+  String encode() => 'fontSize=$fontSize\n'
+      'lineHeight=$lineHeight\n'
+      'monoFont=$monoFont\n'
+      'sidebarCollapsed=$sidebarCollapsed\n';
 
   /// Reads back [encode], falling back to the defaults for anything missing or unreadable.
   ///
@@ -59,6 +72,7 @@ class NotesSettings {
     double fontSize = defaults.fontSize;
     double lineHeight = defaults.lineHeight;
     bool monoFont = defaults.monoFont;
+    bool sidebarCollapsed = defaults.sidebarCollapsed;
     for (final String line in text.split('\n')) {
       final int split = line.indexOf('=');
       if (split <= 0) continue;
@@ -71,12 +85,15 @@ class NotesSettings {
           lineHeight = double.tryParse(value) ?? lineHeight;
         case 'monoFont':
           monoFont = value == 'true';
+        case 'sidebarCollapsed':
+          sidebarCollapsed = value == 'true';
       }
     }
     return NotesSettings(
       fontSize: fontSize,
       lineHeight: lineHeight,
       monoFont: monoFont,
+      sidebarCollapsed: sidebarCollapsed,
     );
   }
 
@@ -85,14 +102,16 @@ class NotesSettings {
       other is NotesSettings &&
       other.fontSize == fontSize &&
       other.lineHeight == lineHeight &&
-      other.monoFont == monoFont;
+      other.monoFont == monoFont &&
+      other.sidebarCollapsed == sidebarCollapsed;
 
   @override
-  int get hashCode => Object.hash(fontSize, lineHeight, monoFont);
+  int get hashCode =>
+      Object.hash(fontSize, lineHeight, monoFont, sidebarCollapsed);
 
   @override
-  String toString() =>
-      'NotesSettings($fontSize, $lineHeight, mono=$monoFont)';
+  String toString() => 'NotesSettings($fontSize, $lineHeight, mono=$monoFont, '
+      'sidebarCollapsed=$sidebarCollapsed)';
 }
 
 /// The one settings store for the app.
@@ -107,7 +126,7 @@ final NotesSettingsStore appSettings = NotesSettingsStore();
 /// jump to the remembered one a moment later, which is a visible flicker on every tap.
 class NotesSettingsStore {
   NotesSettingsStore({Future<String?> Function()? configDirectory})
-      : _configDirectory = configDirectory ?? _androidConfigDirectory;
+      : _configDirectory = configDirectory ?? _platformConfigDirectory;
 
   static const MethodChannel _channel = MethodChannel('notes_app/storage');
   static const String _fileName = 'settings.txt';
@@ -144,7 +163,7 @@ class NotesSettingsStore {
 
   NotesSettingsStore.forTesting(this._value)
       : _loaded = true,
-        _configDirectory = _androidConfigDirectory;
+        _configDirectory = _platformConfigDirectory;
 
   /// Reads the settings file once. Later calls do nothing.
   Future<NotesSettings> load() async {
@@ -229,17 +248,28 @@ class NotesSettingsStore {
     return _cached = File('$directory${Platform.pathSeparator}$_fileName');
   }
 
-  /// Android hands over its private files directory through the channel that already exists
-  /// for storage permissions. Anywhere else there is nothing to remember yet: the desktop
-  /// UI is frozen, so there is no setting on it to keep.
-  static Future<String?> _androidConfigDirectory() async {
-    if (!Platform.isAndroid) return null;
-    try {
-      return await _channel.invokeMethod<String>('getConfigDirectory');
-    } on PlatformException {
-      return null;
-    } on MissingPluginException {
-      return null;
+  /// Where the settings file lives, per platform.
+  ///
+  /// Android hands over its private files directory through the channel that already exists for
+  /// storage permissions. Windows has `%LOCALAPPDATA%`, which `dart:io` can read with no plugin
+  /// at all - the same directory every other Windows app keeps its own state in. Local rather
+  /// than roaming: this is one machine's window layout, not something to carry to another.
+  static Future<String?> _platformConfigDirectory() async {
+    if (Platform.isAndroid) {
+      try {
+        return await _channel.invokeMethod<String>('getConfigDirectory');
+      } on PlatformException {
+        return null;
+      } on MissingPluginException {
+        return null;
+      }
     }
+    if (Platform.isWindows) {
+      final String? base = Platform.environment['LOCALAPPDATA'] ??
+          Platform.environment['APPDATA'];
+      if (base == null || base.isEmpty) return null;
+      return '$base${Platform.pathSeparator}Notes';
+    }
+    return null;
   }
 }

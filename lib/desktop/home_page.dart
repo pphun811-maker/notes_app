@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 
 import '../format.dart';
 import '../notes_store.dart';
+import '../settings.dart';
 import '../strings.dart';
 import 'desktop_design.dart';
 import 'editor_pane.dart';
@@ -65,8 +66,8 @@ class _NotesHomePageState extends State<NotesHomePage>
 
   /// Whether the note list is folded away.
   ///
-  /// Not persisted: `settings.dart` still writes nothing on Windows (HANDOFF_PHASE6 §3.4), so
-  /// there is nowhere to put it yet.
+  /// Remembered between visits in the app's own settings file (see `settings.dart`), not in the
+  /// notes folder.
   bool _sidebarCollapsed = false;
 
   @override
@@ -74,7 +75,33 @@ class _NotesHomePageState extends State<NotesHomePage>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     unawaited(_loadAccent());
+    unawaited(_loadSettings());
     unawaited(_refresh());
+  }
+
+  /// Picks up what the last visit left behind.
+  ///
+  /// The page is built with the list open and folds a moment later if that is how it was left:
+  /// reading a file is asynchronous, and blocking the first frame on it would show the user a
+  /// blank window for no good reason.
+  Future<void> _loadSettings() async {
+    final NotesSettings settings = await appSettings.load();
+    if (!mounted) return;
+    if (settings.sidebarCollapsed == _sidebarCollapsed) return;
+    setState(() => _sidebarCollapsed = settings.sidebarCollapsed);
+  }
+
+  /// Folds the note list away, or brings it back, and remembers which.
+  ///
+  /// The write is best-effort - see `NotesSettingsStore` - so a failure to remember this never
+  /// stands between the user and the list.
+  void _toggleSidebar() {
+    setState(() => _sidebarCollapsed = !_sidebarCollapsed);
+    unawaited(
+      appSettings.save(
+        appSettings.value.copyWith(sidebarCollapsed: _sidebarCollapsed),
+      ),
+    );
   }
 
   @override
@@ -204,12 +231,30 @@ class _NotesHomePageState extends State<NotesHomePage>
         ? NotesDesktopPalette.dark(_accent)
         : NotesDesktopPalette.light(_accent);
 
-    return Theme(
+    return CallbackShortcuts(
+      bindings: <ShortcutActivator, VoidCallback>{
+        // The shortcut the panel toggle has everywhere else. It fires from anywhere on the
+        // page, including while a note is being typed into: the key events bubble up from
+        // whatever holds the focus.
+        const SingleActivator(LogicalKeyboardKey.keyB, control: true):
+            _toggleSidebar,
+      },
+      child: Focus(
+        // Without something holding the focus the page never sees a key at all.
+        autofocus: true,
+        child: Theme(
       data: Theme.of(context).copyWith(
         colorScheme: ColorScheme.fromSeed(
           seedColor: p.accent,
           brightness: brightness,
         ).copyWith(surface: p.surface, primary: p.accent),
+        // The Latin face is what the app already used; naming it and the Chinese faces keeps
+        // the first as it was and takes the second out of the engine's hands. See
+        // [NotesDesktopType].
+        textTheme: Theme.of(context).textTheme.apply(
+              fontFamily: NotesDesktopType.fontFamily,
+              fontFamilyFallback: NotesDesktopType.fontFamilyFallback,
+            ),
       ),
       child: Scaffold(
         backgroundColor: p.page,
@@ -237,6 +282,8 @@ class _NotesHomePageState extends State<NotesHomePage>
             );
           },
         ),
+        ),
+      ),
       ),
     );
   }
@@ -296,8 +343,7 @@ class _NotesHomePageState extends State<NotesHomePage>
             tooltip: _sidebarCollapsed
                 ? NotesStrings.desktopSidebarExpand
                 : NotesStrings.desktopSidebarCollapse,
-            onPressed: () =>
-                setState(() => _sidebarCollapsed = !_sidebarCollapsed),
+            onPressed: _toggleSidebar,
           ),
         ],
       ),

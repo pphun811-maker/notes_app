@@ -240,12 +240,29 @@ abstract final class NotesDesktopMetrics {
   static const double radiusRow = 10;
 }
 
-/// Weights for the Windows interface.
+/// The families the Windows interface is drawn in.
 ///
-/// The phone's [NotesType.emphasis] is w800 because ColorOS Notes measures that way on a font
-/// with a single Regular face. Segoe UI and Microsoft YaHei ship real weights, and w800 there
-/// reads as shouting, so the desktop asks for one step and nothing more.
+/// Only the Chinese half needed naming. The Latin text was already coming out as Segoe UI -
+/// measured rather than assumed: a 12px line of `2026/9/18 · 欢迎使用 Notes` is 225 physical
+/// pixels wide on screen, against Segoe UI's 223 - so the user's "the Latin is fine" is what
+/// the app was doing anyway.
+///
+/// Chinese was a different matter: nothing named a family for it. The theme sets no
+/// `fontFamily`, and Flutter's Windows typography names a face for Latin (Segoe UI) but leaves
+/// the one it uses for Chinese to the engine's fallback, which is whatever the system reaches
+/// for rather than a decision anybody made. [fontFamilyFallback] is consulted per character,
+/// so naming Segoe UI first and the Chinese faces after it keeps the Latin exactly as it was
+/// and makes the Chinese deliberate.
+///
+/// The `UI` variant is the one Windows itself draws menus and dialogs in; plain
+/// `Microsoft YaHei` is the fallback for a machine that has only that.
 abstract final class NotesDesktopType {
+  static const String fontFamily = 'Segoe UI';
+  static const List<String> fontFamilyFallback = <String>[
+    'Microsoft YaHei UI',
+    'Microsoft YaHei',
+  ];
+
   static const FontWeight body = FontWeight.w400;
   static const FontWeight medium = FontWeight.w500;
   static const FontWeight emphasis = FontWeight.w600;
