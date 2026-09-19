@@ -68,6 +68,14 @@ class EditorPaneState extends State<EditorPane> {
   final FocusNode _titleFocus = FocusNode();
   final FocusNode _bodyFocus = FocusNode();
 
+  /// Whether the body is showing the file's own characters rather than the rendered note.
+  ///
+  /// Per note rather than one setting for the window: it is a way of looking at *this* note
+  /// (usually to see why a line is rendering oddly), and it starts off for every note that is
+  /// opened. Deliberately not remembered between visits either - a note that opened as source
+  /// because of something done to a different note last week would be baffling.
+  bool _sourceMode = false;
+
   @override
   void initState() {
     super.initState();
@@ -425,11 +433,90 @@ class EditorPaneState extends State<EditorPane> {
               style: TextStyle(fontSize: 12, color: p.faint),
             ),
             const Spacer(),
+            _StatusToggle(
+              palette: p,
+              // What pressing it does, like the band's theme button.
+              label: _sourceMode
+                  ? NotesStrings.desktopViewRendered
+                  : NotesStrings.desktopViewSource,
+              tooltip: _sourceMode
+                  ? NotesStrings.desktopViewRenderedTip
+                  : NotesStrings.desktopViewSourceTip,
+              onPressed: _toggleSource,
+            ),
+            const SizedBox(width: 14),
             Text(
               widget.file.path,
               style: TextStyle(fontSize: 12, color: p.faint),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  /// Flips the body between the rendered note and the file's own characters.
+  ///
+  /// All that has to happen is the flag and a rebuild: the field calls `buildTextSpan` again
+  /// during the rebuild, and the controller decides what to draw. The note itself, the caret
+  /// and the undo history are untouched - nothing is reloaded.
+  void _toggleSource() {
+    setState(() {
+      _sourceMode = !_sourceMode;
+      _body.sourceMode = _sourceMode;
+    });
+  }
+}
+
+/// The small switch at the right of the status line: source or rendered.
+class _StatusToggle extends StatefulWidget {
+  const _StatusToggle({
+    required this.palette,
+    required this.label,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  final NotesDesktopPalette palette;
+  final String label;
+  final String tooltip;
+  final VoidCallback onPressed;
+
+  @override
+  State<_StatusToggle> createState() => _StatusToggleState();
+}
+
+class _StatusToggleState extends State<_StatusToggle> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final NotesDesktopPalette p = widget.palette;
+    return Tooltip(
+      message: widget.tooltip,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (PointerEnterEvent _) => setState(() => _hovered = true),
+        onExit: (PointerExitEvent _) => setState(() => _hovered = false),
+        child: GestureDetector(
+          onTap: widget.onPressed,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 90),
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+            decoration: BoxDecoration(
+              color: _hovered ? p.line : Colors.transparent,
+              borderRadius:
+                  BorderRadius.circular(NotesDesktopMetrics.radiusControl),
+            ),
+            child: Text(
+              widget.label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: NotesDesktopType.medium,
+                color: _hovered ? p.ink : p.faint,
+              ),
+            ),
+          ),
         ),
       ),
     );

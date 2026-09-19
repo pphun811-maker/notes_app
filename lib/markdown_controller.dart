@@ -34,19 +34,52 @@ class MarkdownEditingController extends TextEditingController {
   /// Overrides the family inline `` `code` `` is drawn in.
   String? monoFamily;
 
+  /// Draws the file's own characters instead of the rendered note.
+  ///
+  /// The markers (`#`, `**`, `>`) are *always* in the file - the renderer only changes what is
+  /// drawn, hiding them behind zero-width characters. So showing them again is a switch over
+  /// this one method rather than a second way of holding the note, and nothing about loading or
+  /// saving is involved. Mutable for the same reason as [palette]: the Windows editor repaints
+  /// the body by rebuilding the field, and this is read during that rebuild.
+  bool sourceMode = false;
+
   @override
   TextSpan buildTextSpan({
     required BuildContext context,
     TextStyle? style,
     required bool withComposing,
   }) {
+    final TextStyle base = style ?? const TextStyle();
+    if (sourceMode) return _plainSpan(base, withComposing);
     return buildMarkdownSpan(
       text: text,
-      base: style ?? const TextStyle(),
+      base: base,
       palette: palette ?? NotesPalette.of(context),
       composing: withComposing ? value.composing : null,
       emphasis: emphasis ?? NotesType.emphasis,
       monoFamily: monoFamily ?? 'monospace',
+    );
+  }
+
+  /// The whole note, as typed, with nothing styled but the IME's uncommitted text.
+  ///
+  /// The underline matters here too: it is the only sign that a Chinese IME is mid-word, and
+  /// losing it would make typing look broken rather than unformatted.
+  TextSpan _plainSpan(TextStyle base, bool withComposing) {
+    final TextRange composing = value.composing;
+    if (!withComposing || !composing.isValid || composing.isCollapsed) {
+      return TextSpan(text: text, style: base);
+    }
+    return TextSpan(
+      style: base,
+      children: <InlineSpan>[
+        TextSpan(text: text.substring(0, composing.start)),
+        TextSpan(
+          text: text.substring(composing.start, composing.end),
+          style: base.copyWith(decoration: TextDecoration.underline),
+        ),
+        TextSpan(text: text.substring(composing.end)),
+      ],
     );
   }
 }

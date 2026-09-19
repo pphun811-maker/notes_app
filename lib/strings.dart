@@ -165,6 +165,27 @@ abstract final class NotesStrings {
   static String desktopPinnedNote(String title) => '已置顶「$title」';
   static String desktopUnpinnedNote(String title) => '已取消置顶「$title」';
 
+  // --- the desktop's own source view and conflict notice --------------------
+
+  /// The body switch at the right of the status line. The label says what pressing it *does*,
+  /// the same way the theme button does.
+  static const String desktopViewSource = '源码';
+  static const String desktopViewRendered = '预览';
+  static const String desktopViewSourceTip = '看 Markdown 原文';
+  static const String desktopViewRenderedTip = '看渲染后的样子';
+
+  /// The strip above the editor when Syncthing has left copies behind, and the dialog it opens.
+  static const String desktopConflictsView = '查看';
+  static const String desktopConflictsDismiss = '知道了';
+  static const String desktopConflictsClose = '关闭';
+
+  /// "属于「欢迎」" - which note a copy was made from.
+  static String desktopConflictBelongsTo(String title) => '属于「$title」';
+
+  /// A copy whose name carries no note title at all (the marker sits at the very start), so
+  /// there is nothing to attribute it to.
+  static const String desktopConflictNoOwner = '看不出属于哪一篇';
+
   // --- a note that somebody else changed ------------------------------------
   /// Shown in the editor when the file on disk has been changed by something else - Syncthing
   /// bringing the phone's copy over, or another editor - while this window has unsaved text.

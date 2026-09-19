@@ -14,6 +14,7 @@ import '../note_editor_controller.dart';
 import '../notes_store.dart';
 import '../settings.dart';
 import '../strings.dart';
+import '../sync_conflict.dart';
 import 'desktop_design.dart';
 import 'editor_pane.dart';
 import 'note_tabs.dart';
@@ -69,6 +70,13 @@ class _NotesHomePageState extends State<NotesHomePage>
 
   SystemAccent _accent = SystemAccent.fallback;
   List<Note> _notes = <Note>[];
+
+  /// Syncthing's conflict copies, which [NotesStore.listNotes] deliberately leaves out.
+  ///
+  /// Kept apart from [_notes] the whole way through: nothing in the sidebar, the tabs or the
+  /// editor ever renders one of these as a note, because its "title" is a long generated name
+  /// and it may hold the only copy of what was typed on the phone.
+  List<Note> _conflicts = <Note>[];
 
   /// The notes that are open, and which of them is on screen.
   NoteTabs _tabs = const NoteTabs.empty();
@@ -228,9 +236,11 @@ class _NotesHomePageState extends State<NotesHomePage>
     try {
       await _store.ensureDirectoryExists();
       final List<Note> notes = await _store.listNotes();
+      final List<Note> conflicts = await _store.listConflictCopies();
       if (!mounted) return;
       setState(() {
         _notes = notes;
+        _conflicts = conflicts;
         _loading = false;
         _error = null;
         // A note that is open can have gone: deleted here, renamed by Syncthing, or moved away.
@@ -491,7 +501,17 @@ class _NotesHomePageState extends State<NotesHomePage>
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: <Widget>[
                       _collapsibleSidebar(p, sidebar),
-                      Expanded(child: _editorArea(p)),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: <Widget>[
+                            // About the folder, not about the note on screen, so it goes above
+                            // whichever of the two the editor area is showing.
+                            if (_showsConflictNotice) _conflictStrip(p),
+                            Expanded(child: _editorArea(p)),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -1173,6 +1193,235 @@ class _NotesHomePageState extends State<NotesHomePage>
           const SizedBox(width: 10),
           Text(label, style: TextStyle(fontSize: 13, color: p.ink)),
         ],
+      ),
+    );
+  }
+
+  // --- conflict copies ------------------------------------------------------
+
+  /// Whether the strip should still be telling the user about conflict copies.
+  ///
+  /// A copy whose notice was put away is not announced again, but a *new* copy always is: its
+  /// name carries the moment Syncthing made it, so it can never be one that was dismissed
+  /// (see `settings.dart`). The copies themselves are never touched by any of this.
+  bool get _showsConflictNotice => _conflicts.any(
+        (Note copy) =>
+            !appSettings.isConflictDismissed(copy.file.uri.pathSegments.last),
+      );
+
+  Future<void> _dismissConflictNotice() async {
+    for (final Note copy in _conflicts) {
+      await appSettings.dismissConflict(copy.file.uri.pathSegments.last);
+    }
+    if (mounted) setState(() {});
+  }
+
+  /// The strip above the editor area.
+  ///
+  /// It belongs to the folder rather than to the note on screen, so it sits above whichever of
+  /// the two the editor area is showing, and it never blocks anything.
+  Widget _conflictStrip(NotesDesktopPalette p) {
+    return Container(
+      color: p.hover,
+      padding: const EdgeInsets.fromLTRB(26, 10, 18, 10),
+      child: Row(
+        children: <Widget>[
+          Icon(Icons.call_split, size: 17, color: p.accent),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              NotesStrings.conflictsFound(_conflicts.length),
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: NotesDesktopType.emphasis,
+                color: p.ink,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          _StripButton(
+            palette: p,
+            label: NotesStrings.desktopConflictsView,
+            onPressed: () => unawaited(_showConflicts()),
+          ),
+          const SizedBox(width: 8),
+          _StripButton(
+            palette: p,
+            label: NotesStrings.desktopConflictsDismiss,
+            onPressed: () => unawaited(_dismissConflictNotice()),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Lists the copies, and says which note each one came from.
+  ///
+  /// A dialog rather than a page of its own: a copy can be read in the app, but the point of
+  /// the list is to send the user to the file, and the desktop already has somewhere better
+  /// than a reader for that - Explorer, and whatever editor they like. There is deliberately no
+  /// delete here: a copy may hold the only version of what was typed on the phone, so removing
+  /// one stays a decision made with the file in front of them.
+  Future<void> _showConflicts() async {
+    final NotesDesktopPalette p = _paletteFor(context);
+    await showDialog<void>(
+      context: context,
+      builder: (BuildContext context) => AlertDialog(
+        backgroundColor: p.surface,
+        title: Text(
+          NotesStrings.conflicts,
+          style: TextStyle(fontSize: 16, color: p.ink),
+        ),
+        content: SizedBox(
+          width: 560,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(
+                NotesStrings.conflictsExplain,
+                style: TextStyle(fontSize: 12, color: p.sub, height: 1.5),
+              ),
+              const SizedBox(height: 14),
+              if (_conflicts.isEmpty)
+                Text(
+                  NotesStrings.conflictNone,
+                  style: TextStyle(fontSize: 13, color: p.faint),
+                )
+              else
+                for (final Note copy in _conflicts)
+                  _ConflictRow(
+                    palette: p,
+                    note: copy,
+                    onReveal: () => unawaited(_revealInExplorer(copy)),
+                  ),
+            ],
+          ),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(
+              NotesStrings.desktopConflictsClose,
+              style: TextStyle(color: p.accent),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One conflict copy in the dialog: which note it belongs to, and where the file is.
+class _ConflictRow extends StatelessWidget {
+  const _ConflictRow({
+    required this.palette,
+    required this.note,
+    required this.onReveal,
+  });
+
+  final NotesDesktopPalette palette;
+  final Note note;
+  final VoidCallback onReveal;
+
+  @override
+  Widget build(BuildContext context) {
+    final NotesDesktopPalette p = palette;
+    final String fileName = note.file.uri.pathSegments.last;
+    final String owner = SyncConflict.originalTitle(fileName);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Text(
+                  owner.isEmpty
+                      ? NotesStrings.desktopConflictNoOwner
+                      : NotesStrings.desktopConflictBelongsTo(owner),
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: NotesDesktopType.emphasis,
+                    color: p.ink,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  fileName,
+                  style: TextStyle(fontSize: 11, color: p.faint),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  formatNoteDate(note.modified),
+                  style: TextStyle(fontSize: 11, color: p.faint),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          _StripButton(
+            palette: p,
+            label: NotesStrings.desktopMenuReveal,
+            onPressed: onReveal,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A small button for the strips and dialogs the page raises.
+///
+/// Local to this file: it sits on a filled strip or on a dialog's surface rather than on the
+/// page colour, so its hover has to be a step away from that rather than the usual one.
+class _StripButton extends StatefulWidget {
+  const _StripButton({
+    required this.palette,
+    required this.label,
+    required this.onPressed,
+  });
+
+  final NotesDesktopPalette palette;
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  State<_StripButton> createState() => _StripButtonState();
+}
+
+class _StripButtonState extends State<_StripButton> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final NotesDesktopPalette p = widget.palette;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (PointerEnterEvent _) => setState(() => _hovered = true),
+      onExit: (PointerExitEvent _) => setState(() => _hovered = false),
+      child: GestureDetector(
+        onTap: widget.onPressed,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 90),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: _hovered ? p.line : p.surface,
+            borderRadius:
+                BorderRadius.circular(NotesDesktopMetrics.radiusControl),
+          ),
+          child: Text(
+            widget.label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: NotesDesktopType.medium,
+              color: p.ink,
+            ),
+          ),
+        ),
       ),
     );
   }
