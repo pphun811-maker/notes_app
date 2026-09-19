@@ -9,6 +9,15 @@ String formatNoteDate(DateTime time) {
   return '${local.year}/${local.month}/${local.day}';
 }
 
+/// The line under the title in the *desktop* editor: when it was last written, then where the
+/// file actually is.
+///
+/// The path is here because a note is an ordinary `.md` file in a folder the user owns, and the
+/// desktop is where they can go and open it with something else. The phone has no such place to
+/// send them, which is why this is not [formatNoteSubtitle].
+String formatNoteHeading(DateTime time, String path) =>
+    '${formatNoteDate(time)} · $path';
+
 /// The one-line subtitle of a note row: the date, then the note's first line.
 ///
 /// The date-only form is used when the note has no body yet, so a freshly created

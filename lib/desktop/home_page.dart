@@ -605,7 +605,8 @@ class _NotesHomePageState extends State<NotesHomePage>
         final double content = _tabs.isEmpty
             ? 0
             : _tabs.length * tabWidth + (_tabs.length - 1) * gap;
-        final double furthest = math.max(0, content - constraints.maxWidth);
+        final double furthest =
+            math.max(0, content + NotesDesktopMetrics.newTabWidth - constraints.maxWidth);
         final double scroll = _tabScroll.clamp(0, furthest);
 
         return Listener(
@@ -650,6 +651,13 @@ class _NotesHomePageState extends State<NotesHomePage>
                             onClose: () => unawaited(_closeTab(i)),
                           ),
                         ],
+                        // Follows the last tab, and scrolls with them: the strip is one row, and
+                        // a "+" pinned to the far edge would look like it belonged to the window
+                        // buttons rather than to the tabs.
+                        _NewTabButton(
+                          palette: p,
+                          onPressed: () => unawaited(_newNote()),
+                        ),
                       ],
                     ),
                   ),
@@ -670,8 +678,11 @@ class _NotesHomePageState extends State<NotesHomePage>
   /// scrolls.
   double _tabWidthFor(double available) {
     if (_tabs.isEmpty || available <= 0) return NotesDesktopMetrics.tabWidth;
-    final double fit =
-        (available - _tabGap * (_tabs.length - 1)) / _tabs.length;
+    // The "+" keeps its room even when the tabs no longer fit: it is how a note gets written in
+    // a strip that has run out of space, so it must never be the thing that gets squeezed out.
+    final double room = available - NotesDesktopMetrics.newTabWidth;
+    if (room <= 0) return NotesDesktopMetrics.tabMinWidth;
+    final double fit = (room - _tabGap * (_tabs.length - 1)) / _tabs.length;
     return fit.clamp(NotesDesktopMetrics.tabMinWidth, NotesDesktopMetrics.tabWidth);
   }
 
@@ -1089,7 +1100,12 @@ class _NoteRowState extends State<_NoteRow> {
                   right: 52,
                   top: 30,
                   child: Text(
-                    formatNoteSubtitle(note.modified, note.preview),
+                    // Just the note's first line. It used to be `formatNoteSubtitle`, which
+                    // prefixes the date as well - but this row already carries the date at its
+                    // right-hand end, so the two together printed the same date twice.
+                    note.preview.isEmpty
+                        ? NotesStrings.desktopEmptyNote
+                        : note.preview,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(fontSize: 12, color: p.sub),
@@ -1263,6 +1279,56 @@ class _TabPainter extends CustomPainter {
   @override
   bool shouldRepaint(_TabPainter old) =>
       old.fill != fill || old.radius != radius;
+}
+
+/// The "+" that ends the tab strip: writes a new note and opens it in a tab.
+///
+/// It is a plain glyph on the strip's own tone until the pointer is over it, which is what the
+/// mock-up draws - the strip is mostly empty space, and a permanent button there would be the
+/// loudest thing in the window's chrome.
+class _NewTabButton extends StatefulWidget {
+  const _NewTabButton({required this.palette, required this.onPressed});
+
+  final NotesDesktopPalette palette;
+  final VoidCallback onPressed;
+
+  @override
+  State<_NewTabButton> createState() => _NewTabButtonState();
+}
+
+class _NewTabButtonState extends State<_NewTabButton> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final NotesDesktopPalette p = widget.palette;
+    return Tooltip(
+      message: NotesStrings.desktopNewTab,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (PointerEnterEvent _) => setState(() => _hovered = true),
+        onExit: (PointerExitEvent _) => setState(() => _hovered = false),
+        child: GestureDetector(
+          onTap: widget.onPressed,
+          child: SizedBox(
+            width: NotesDesktopMetrics.newTabWidth,
+            child: Center(
+              child: Container(
+                width: 24,
+                height: 24,
+                decoration: BoxDecoration(
+                  color: _hovered ? p.hover : Colors.transparent,
+                  borderRadius:
+                      BorderRadius.circular(NotesDesktopMetrics.radiusControl),
+                ),
+                child: Icon(Icons.add, size: 15, color: p.sub),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 enum _WindowButtonKind { minimize, maximize, restore, close }

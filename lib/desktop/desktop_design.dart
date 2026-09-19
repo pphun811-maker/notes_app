@@ -240,6 +240,14 @@ abstract final class NotesDesktopMetrics {
 
   static const double tabRadius = 9;
 
+  /// The "+" at the end of the tab strip, and the room it takes out of the tabs' width.
+  ///
+  /// Measured off the mock-up rather than chosen: the last tab ends at x=830 and the glyph's ink
+  /// runs 839..849, so a 28-wide box butted straight against the tab centres it where the design
+  /// has it. It keeps this room even when the tabs no longer fit - it is how a note gets written
+  /// in a strip that has run out of space, so it must never be what gets squeezed out.
+  static const double newTabWidth = 28;
+
   /// The paragraph column. Wider than this and the eye loses the line it was on.
   static const double bodyMaxWidth = 700;
   static const double bodyFontSize = 16;

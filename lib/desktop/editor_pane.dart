@@ -312,7 +312,7 @@ class EditorPaneState extends State<EditorPane> {
                       _titleField(p),
                       const SizedBox(height: 6),
                       Text(
-                        formatNoteDate(widget.modified),
+                        formatNoteHeading(widget.modified, widget.file.path),
                         style: TextStyle(
                           fontSize: 12,
                           color: p.faint,

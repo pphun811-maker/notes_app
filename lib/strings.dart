@@ -107,9 +107,17 @@ abstract final class NotesStrings {
   static const String nothingOpenDetail = '从左边选一篇，或按 Ctrl+N 新建一篇。';
 
   static const String desktopNewNote = '新建';
+
+  /// The button at the end of the tab strip. It sits with the tabs rather than with the note
+  /// list because writing a new note is what the tabs are for.
+  static const String desktopNewTab = '新建一篇笔记';
   static const String desktopSearchHint = '搜索笔记';
   static const String desktopNoteCountSection = '全部笔记';
   static const String desktopPinnedSection = '已置顶';
+
+  /// A note with nothing written in it yet. The design puts this where the one-line preview
+  /// would otherwise be, so an empty row still reads as a row rather than as a gap.
+  static const String desktopEmptyNote = '（空）';
 
   /// "共 8 篇"
   static String desktopNoteTotal(int count) => '共 $count 篇';
