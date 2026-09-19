@@ -277,5 +277,28 @@ void main() {
       await store.load();
       expect(store.pinnedNotes, isEmpty);
     });
+
+    test('a write leaves no half-written file behind', () async {
+      final NotesSettingsStore store = storeFor(tempDir);
+      await store.togglePinned('欢迎');
+
+      final List<String> names = tempDir
+          .listSync()
+          .map((FileSystemEntity e) => e.uri.pathSegments.last)
+          .toList();
+      expect(names, <String>['settings.txt'],
+          reason: 'the file is written beside the real one and moved into place; the stand-in '
+              'must not survive the move');
+    });
+
+    test('a leftover stand-in from an interrupted write is ignored', () async {
+      // What a kill between the write and the move leaves behind. The real file must still be
+      // read, and the stand-in must not be mistaken for it.
+      await file.writeAsString('fontSize=22\n');
+      await File('${file.path}.writing').writeAsString('fontSize=8\n');
+
+      final NotesSettingsStore store = storeFor(tempDir);
+      expect((await store.load()).fontSize, 22);
+    });
   });
 }

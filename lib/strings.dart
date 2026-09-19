@@ -182,6 +182,21 @@ abstract final class NotesStrings {
   static const String desktopViewSourceTip = '看 Markdown 原文';
   static const String desktopViewRenderedTip = '看渲染后的样子';
 
+  // --- finding inside the open note (Ctrl+F) --------------------------------
+  static const String findHint = '在这篇里找…';
+  static const String findNoMatch = '没找到';
+  static const String findNext = '下一个 (Enter)';
+  static const String findPrevious = '上一个';
+  static const String findClose = '关闭查找 (Esc)';
+
+  /// The button in the status line. Ctrl+F is the fast way in, but nothing on screen says so,
+  /// and a feature nobody can find is not finished.
+  static const String desktopFindOpen = '查找';
+  static const String desktopFindTip = '在这篇笔记里找字 (Ctrl+F)';
+
+  /// "3 / 12" - which match of how many.
+  static String findCount(int at, int total) => '$at / $total';
+
   /// The strip above the editor when Syncthing has left copies behind, and the dialog it opens.
   static const String desktopConflictsView = '查看';
   static const String desktopConflictsDismiss = '知道了';

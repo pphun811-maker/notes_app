@@ -272,16 +272,27 @@ class NotesSettingsStore {
   }
 
   /// Never throws - failing to remember a font size must not interrupt writing a note.
+  ///
+  /// Written beside the real file and then moved into place, because a write in place can be
+  /// interrupted between the truncate and the write. The result of that is not a damaged file
+  /// anybody notices: it is an **empty** one, which reads back as the defaults - silently
+  /// resetting the font size, the line height, the theme, the folded sidebar and every pin.
+  /// A rename is atomic, so the file is either what it was or what it now should be.
   Future<void> _write() async {
     final File? file = await _file();
     if (file == null) return;
     try {
       await file.parent.create(recursive: true);
-      await file.writeAsString(_encode(), flush: true);
+      final File pending = File('${file.path}$_pendingSuffix');
+      await pending.writeAsString(_encode(), flush: true);
+      await pending.rename(file.path);
     } on FileSystemException {
       // Nothing to be done about it here, and nothing worth interrupting the user for.
     }
   }
+
+  /// What the half-written file is called while it is being written.
+  static const String _pendingSuffix = '.writing';
 
   String _encode() {
     final StringBuffer buffer = StringBuffer(_value.encode());

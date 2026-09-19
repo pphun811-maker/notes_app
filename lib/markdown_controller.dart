@@ -43,6 +43,18 @@ class MarkdownEditingController extends TextEditingController {
   /// the body by rebuilding the field, and this is read during that rebuild.
   bool sourceMode = false;
 
+  /// Ranges to paint a background behind, as `(start, end, colour)` offsets into the note.
+  ///
+  /// The editor's find bar is what sets these. They are painted *over* the finished span rather
+  /// than inside the renderer: the renderer's business is what Markdown means, and this is the
+  /// editor's - what the user is looking for. The two can be combined at all because the
+  /// renderer replaces every marker one character for one (a hidden `#` is drawn as one
+  /// zero-width space), so an offset in the note is the same offset in what is drawn.
+  ///
+  /// Later marks win where they overlap, which is how the match being looked at is painted over
+  /// the other matches rather than fighting with them.
+  List<(int, int, Color)> highlights = const <(int, int, Color)>[];
+
   @override
   TextSpan buildTextSpan({
     required BuildContext context,
@@ -50,15 +62,91 @@ class MarkdownEditingController extends TextEditingController {
     required bool withComposing,
   }) {
     final TextStyle base = style ?? const TextStyle();
-    if (sourceMode) return _plainSpan(base, withComposing);
-    return buildMarkdownSpan(
-      text: text,
-      base: base,
-      palette: palette ?? NotesPalette.of(context),
-      composing: withComposing ? value.composing : null,
-      emphasis: emphasis ?? NotesType.emphasis,
-      monoFamily: monoFamily ?? 'monospace',
-    );
+    final TextSpan span = sourceMode
+        ? _plainSpan(base, withComposing)
+        : buildMarkdownSpan(
+            text: text,
+            base: base,
+            palette: palette ?? NotesPalette.of(context),
+            composing: withComposing ? value.composing : null,
+            emphasis: emphasis ?? NotesType.emphasis,
+            monoFamily: monoFamily ?? 'monospace',
+          );
+    if (highlights.isEmpty) return span;
+    return _paintHighlights(span, _segments(highlights), 0);
+  }
+
+  /// The marked ranges, cut into non-overlapping pieces in order, each with the colour of the
+  /// last mark covering it.
+  ///
+  /// Splitting on the marks' own boundaries keeps this proportional to the number of matches
+  /// rather than to the length of the note.
+  static List<(int, int, Color)> _segments(List<(int, int, Color)> marks) {
+    final Set<int> bounds = <int>{};
+    for (final (int start, int end, Color _) in marks) {
+      bounds.add(start);
+      bounds.add(end);
+    }
+    final List<int> sorted = bounds.toList()..sort();
+    final List<(int, int, Color)> parts = <(int, int, Color)>[];
+    for (int i = 0; i + 1 < sorted.length; i++) {
+      final int from = sorted[i];
+      final int to = sorted[i + 1];
+      Color? colour;
+      for (final (int start, int end, Color candidate) in marks) {
+        if (start <= from && to <= end) colour = candidate;
+      }
+      if (colour != null) parts.add((from, to, colour));
+    }
+    return parts;
+  }
+
+  /// Rebuilds [span] with [parts] given a background, walking the tree and tracking the offset
+  /// each leaf sits at.
+  TextSpan _paintHighlights(
+    TextSpan span,
+    List<(int, int, Color)> parts,
+    int start,
+  ) {
+    final List<InlineSpan>? children = span.children;
+    if (children != null && children.isNotEmpty) {
+      int at = start;
+      final List<InlineSpan> rebuilt = <InlineSpan>[];
+      for (final InlineSpan child in children) {
+        if (child is TextSpan) {
+          rebuilt.add(_paintHighlights(child, parts, at));
+        } else {
+          rebuilt.add(child);
+        }
+        at += child.toPlainText().length;
+      }
+      return TextSpan(style: span.style, children: rebuilt);
+    }
+
+    final String text = span.text ?? '';
+    if (text.isEmpty) return span;
+    final int from = start;
+    final int to = start + text.length;
+    final List<InlineSpan> pieces = <InlineSpan>[];
+    int at = from;
+    for (final (int markStart, int markEnd, Color colour) in parts) {
+      if (markEnd <= from || markStart >= to) continue;
+      final int a = markStart < from ? from : markStart;
+      final int b = markEnd > to ? to : markEnd;
+      if (a > at) {
+        pieces.add(TextSpan(text: text.substring(at - from, a - from), style: span.style));
+      }
+      pieces.add(TextSpan(
+        text: text.substring(a - from, b - from),
+        style: (span.style ?? const TextStyle()).copyWith(backgroundColor: colour),
+      ));
+      at = b;
+    }
+    if (pieces.isEmpty) return span;
+    if (at < to) {
+      pieces.add(TextSpan(text: text.substring(at - from), style: span.style));
+    }
+    return TextSpan(style: span.style, children: pieces);
   }
 
   /// The whole note, as typed, with nothing styled but the IME's uncommitted text.

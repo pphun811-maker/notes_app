@@ -128,6 +128,13 @@ class NotesDesktopPalette {
   /// this surface.
   Color get selection => accent.withValues(alpha: 0.35);
 
+  /// Behind every place the find bar's word appears, and behind the one being looked at.
+  ///
+  /// Two strengths of the same colour: the current match has to be pickable out of a page of
+  /// matches at a glance, and it is the one the eye is being sent to.
+  Color get matchHighlight => accent.withValues(alpha: 0.20);
+  Color get currentMatchHighlight => accent.withValues(alpha: 0.55);
+
   static NotesDesktopPalette light(SystemAccent accent) =>
       NotesDesktopPalette(
         page: const Color(0xFFF0F0F2),

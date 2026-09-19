@@ -1,14 +1,18 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+// `RenderEditable` (for revealing a find hit) and the key types Escape needs are re-exported by
+// neither material nor gestures.
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 
 import '../load_failed_view.dart';
 import '../format.dart';
 import '../markdown_controller.dart';
 import '../markdown_span.dart';
 import '../note_editor_controller.dart';
+import '../note_finder.dart';
 import '../note_title.dart';
 import '../notes_store.dart';
 import '../strings.dart';
@@ -76,6 +80,15 @@ class EditorPaneState extends State<EditorPane> {
   /// because of something done to a different note last week would be baffling.
   bool _sourceMode = false;
 
+  /// The find bar: whether it is up, what is typed in it, and where the search has got to.
+  final TextEditingController _find = TextEditingController();
+  final FocusNode _findFocus = FocusNode();
+  bool _findOpen = false;
+  List<int> _findHits = const <int>[];
+
+  /// Which hit is being looked at, or -1 when there are none.
+  int _findIndex = -1;
+
   @override
   void initState() {
     super.initState();
@@ -115,6 +128,8 @@ class EditorPaneState extends State<EditorPane> {
     _bodyFocus.dispose();
     _title.dispose();
     _body.dispose();
+    _find.dispose();
+    _findFocus.dispose();
     _editor.dispose();
     super.dispose();
   }
@@ -248,6 +263,9 @@ class EditorPaneState extends State<EditorPane> {
   @override
   Widget build(BuildContext context) {
     final NotesDesktopPalette p = widget.palette;
+    // Before the field below is built, so the span it draws this frame already carries the
+    // highlights.
+    _syncHighlights(p);
     return ColoredBox(
       color: p.surface,
       child: _body_(p),
@@ -317,6 +335,9 @@ class EditorPaneState extends State<EditorPane> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
+        // Above the conflict banner: it is the thing the user just asked for, and its place
+        // should not move depending on what else the pane happens to be showing.
+        if (_findOpen) _findBar(p),
         if (_editor.hasExternalChange) _externalChangeBanner(p),
         Expanded(
           child: SingleChildScrollView(
@@ -428,11 +449,41 @@ class EditorPaneState extends State<EditorPane> {
               ),
             ),
             const SizedBox(width: 8),
-            Text(
-              state,
-              style: TextStyle(fontSize: 12, color: p.faint),
+            // Everything on this line is allowed to shrink, because the path is not: it can be
+            // any length at all (a deep folder, a long title) and the row used to run off the
+            // edge of the window once it was. Equal shares, because the two need about the same
+            // room - a narrower share for the state cuts it to "已…", which says nothing, before
+            // the path has given up anything at all. The path is right-aligned inside its share,
+            // so it stays against the buttons rather than floating in the middle.
+            Expanded(
+              child: Text(
+                state,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 12, color: p.faint),
+              ),
             ),
-            const Spacer(),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                widget.file.path,
+                maxLines: 1,
+                softWrap: false,
+                textAlign: TextAlign.right,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 12, color: p.faint),
+              ),
+            ),
+            const SizedBox(width: 12),
+            // Ctrl+F is the fast way in, but nothing on screen announces it; this is how the
+            // feature is found at all.
+            _StatusToggle(
+              palette: p,
+              label: NotesStrings.desktopFindOpen,
+              tooltip: NotesStrings.desktopFindTip,
+              onPressed: openFind,
+            ),
+            const SizedBox(width: 6),
             _StatusToggle(
               palette: p,
               // What pressing it does, like the band's theme button.
@@ -443,11 +494,6 @@ class EditorPaneState extends State<EditorPane> {
                   ? NotesStrings.desktopViewRenderedTip
                   : NotesStrings.desktopViewSourceTip,
               onPressed: _toggleSource,
-            ),
-            const SizedBox(width: 14),
-            Text(
-              widget.file.path,
-              style: TextStyle(fontSize: 12, color: p.faint),
             ),
           ],
         ),
@@ -465,6 +511,222 @@ class EditorPaneState extends State<EditorPane> {
       _sourceMode = !_sourceMode;
       _body.sourceMode = _sourceMode;
     });
+  }
+
+  // --- finding inside this note (Ctrl+F) ------------------------------------
+
+  /// Opens the find bar and puts the caret in it. What Ctrl+F does.
+  void openFind() {
+    if (!_findOpen) setState(() => _findOpen = true);
+    // The field does not exist until the build that opening it triggers.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _findFocus.requestFocus();
+    });
+  }
+
+  void _closeFind() {
+    setState(() {
+      _findOpen = false;
+      _find.clear();
+      _findHits = const <int>[];
+      _findIndex = -1;
+    });
+    // Back to the note, so Esc leaves the user where they were rather than nowhere.
+    _bodyFocus.requestFocus();
+  }
+
+  /// A new word to look for.
+  ///
+  /// The search starts from the caret, so pressing Ctrl+F halfway down a note finds the next
+  /// one below rather than sending the user back to the top of the file.
+  void _onFindChanged(String term) {
+    final List<int> hits = findMatchOffsets(_body.text, term);
+    final int caret = _body.selection.isValid ? _body.selection.baseOffset : 0;
+    final int index = hits.isEmpty ? -1 : firstMatchFrom(hits, caret);
+    setState(() {
+      _findHits = hits;
+      _findIndex = index;
+    });
+    if (index >= 0) _revealHit(index);
+  }
+
+  /// Enter, or one of the two arrows. Wraps round at either end.
+  void _stepFind(int delta) {
+    if (_findHits.isEmpty) return;
+    setState(() {
+      _findIndex = delta > 0
+          ? nextMatch(_findIndex, _findHits.length)
+          : previousMatch(_findIndex, _findHits.length);
+    });
+    _revealHit(_findIndex);
+  }
+
+  /// Selects the hit and brings it into view.
+  void _revealHit(int index) {
+    final int start = _findHits[index];
+    _body.selection = TextSelection(
+      baseOffset: start,
+      extentOffset: start + _find.text.length,
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _scrollTo(start);
+    });
+  }
+
+  /// Scrolls so the hit is on screen.
+  ///
+  /// A `TextField` will not do this by itself: its own caret-revealing path needs the field to
+  /// own a scroll controller, and this one grows to its full height inside the page's scroll
+  /// view instead - so that path returns without doing anything. The caret's rectangle is asked
+  /// for directly and handed to `showOnScreen`, which walks up to whichever scrollable encloses
+  /// it: the same mechanism, entered from the side that works here.
+  void _scrollTo(int offset) {
+    final RenderObject? render = _bodyFocus.context?.findRenderObject();
+    if (render is! RenderEditable) return;
+    render.showOnScreen(
+      rect: render.getLocalRectForCaret(TextPosition(offset: offset)),
+    );
+  }
+
+  /// Hands what has been found to the controller, which is what paints it.
+  ///
+  /// Called from `build` rather than from each of the places the state changes: it depends on
+  /// the palette as well, and the palette changes with the theme without any of those running.
+  void _syncHighlights(NotesDesktopPalette p) {
+    final String term = _find.text;
+    final List<(int, int, Color)> marks = <(int, int, Color)>[];
+    if (_findOpen && term.isNotEmpty) {
+      for (int i = 0; i < _findHits.length; i++) {
+        final int start = _findHits[i];
+        marks.add((
+          start,
+          start + term.length,
+          i == _findIndex ? p.currentMatchHighlight : p.matchHighlight,
+        ));
+      }
+    }
+    _body.highlights = marks;
+  }
+
+  /// The bar across the top of the pane while a search is on.
+  Widget _findBar(NotesDesktopPalette p) {
+    final int total = _findHits.length;
+    final String count = _find.text.isEmpty
+        ? ''
+        : (total == 0
+            ? NotesStrings.findNoMatch
+            : NotesStrings.findCount(_findIndex + 1, total));
+    return Container(
+      color: p.hover,
+      padding: const EdgeInsets.fromLTRB(26, 8, 18, 8),
+      child: Focus(
+        // Escape closes it. Wrapped around the row rather than given to the field so that it
+        // still works once the caret has wandered to one of the arrows.
+        onKeyEvent: (FocusNode node, KeyEvent event) {
+          if (event is KeyDownEvent &&
+              event.logicalKey == LogicalKeyboardKey.escape) {
+            _closeFind();
+            return KeyEventResult.handled;
+          }
+          return KeyEventResult.ignored;
+        },
+        child: Row(
+          children: <Widget>[
+            Icon(Icons.search, size: 15, color: p.faint),
+            const SizedBox(width: 8),
+            SizedBox(
+              width: 220,
+              child: TextField(
+                key: const ValueKey<String>('note-find-field'),
+                controller: _find,
+                focusNode: _findFocus,
+                onChanged: _onFindChanged,
+                onSubmitted: (String _) => _stepFind(1),
+                style: TextStyle(fontSize: 13, color: p.ink),
+                cursorColor: p.accent,
+                decoration: InputDecoration(
+                  border: InputBorder.none,
+                  isDense: true,
+                  contentPadding: EdgeInsets.zero,
+                  hintText: NotesStrings.findHint,
+                  hintStyle: TextStyle(fontSize: 13, color: p.faint),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Text(count, style: TextStyle(fontSize: 12, color: p.faint)),
+            const SizedBox(width: 12),
+            _FindButton(
+              palette: p,
+              icon: Icons.keyboard_arrow_up,
+              tooltip: NotesStrings.findPrevious,
+              onPressed: () => _stepFind(-1),
+            ),
+            _FindButton(
+              palette: p,
+              icon: Icons.keyboard_arrow_down,
+              tooltip: NotesStrings.findNext,
+              onPressed: () => _stepFind(1),
+            ),
+            const Spacer(),
+            _FindButton(
+              palette: p,
+              icon: Icons.close,
+              tooltip: NotesStrings.findClose,
+              onPressed: _closeFind,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A small icon button for the find bar.
+class _FindButton extends StatefulWidget {
+  const _FindButton({
+    required this.palette,
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  final NotesDesktopPalette palette;
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onPressed;
+
+  @override
+  State<_FindButton> createState() => _FindButtonState();
+}
+
+class _FindButtonState extends State<_FindButton> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final NotesDesktopPalette p = widget.palette;
+    return Tooltip(
+      message: widget.tooltip,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (PointerEnterEvent _) => setState(() => _hovered = true),
+        onExit: (PointerExitEvent _) => setState(() => _hovered = false),
+        child: GestureDetector(
+          onTap: widget.onPressed,
+          child: Container(
+            width: 26,
+            height: 26,
+            decoration: BoxDecoration(
+              color: _hovered ? p.line : Colors.transparent,
+              borderRadius:
+                  BorderRadius.circular(NotesDesktopMetrics.radiusControl),
+            ),
+            child: Icon(widget.icon, size: 15, color: _hovered ? p.ink : p.sub),
+          ),
+        ),
+      ),
+    );
   }
 }
 

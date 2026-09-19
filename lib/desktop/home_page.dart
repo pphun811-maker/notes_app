@@ -400,6 +400,13 @@ class _NotesHomePageState extends State<NotesHomePage>
   /// Closes whichever tab is on screen.
   Future<void> _closeCurrentTab() => _closeTab(_tabs.currentIndex);
 
+  /// Opens the find bar in the note on screen. Ctrl+F.
+  void _openFind() {
+    final File? file = _tabs.current;
+    if (file == null) return;
+    _paneKeys[file.path]?.currentState?.openFind();
+  }
+
   /// Replaces the tab set, and drops the editors of any tab that has gone.
   void _setTabs(NoteTabs next) {
     if (next == _tabs) return;
@@ -542,6 +549,10 @@ class _NotesHomePageState extends State<NotesHomePage>
         // the file is written and the tab goes away.
         const SingleActivator(LogicalKeyboardKey.keyW, control: true):
             _closeCurrentTabNow,
+        // Finding something inside the note on screen. There is nothing to search when no note
+        // is open, and the shortcut does nothing rather than opening an empty bar.
+        const SingleActivator(LogicalKeyboardKey.keyF, control: true):
+            _openFind,
       },
       child: Focus(
         // Without something holding the focus the page never sees a key at all.
