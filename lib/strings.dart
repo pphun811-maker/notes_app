@@ -131,6 +131,21 @@ abstract final class NotesStrings {
   static const String desktopThemeToDark = '切换到深色';
   static const String desktopThemeToSystem = '跟随系统';
 
+  // --- a note that somebody else changed ------------------------------------
+  /// Shown in the editor when the file on disk has been changed by something else - Syncthing
+  /// bringing the phone's copy over, or another editor - while this window has unsaved text.
+  static const String externalChangeTitle = '这篇笔记在磁盘上被改了';
+  static const String externalChangeDetail = '为免盖掉对方的改动，现在不会自动保存。';
+
+  /// The two answers. Taking the file's version throws this window's text away; keeping it
+  /// writes over what the other machine wrote.
+  static const String externalChangeTakeDisk = '用磁盘上的';
+  static const String externalChangeKeepMine = '保留我的';
+
+  /// The same event with nothing unsaved here, so the file's version was simply taken. Nobody
+  /// had to be asked, but the text on screen changing by itself still needs saying.
+  static const String externalChangeReloaded = '这篇笔记在磁盘上被改过，已重新载入';
+
   /// Shown instead of the editor when the note could not be read. The note stays
   /// read-only until the user retries, so that an empty editor can never replace
   /// contents the app never managed to read.

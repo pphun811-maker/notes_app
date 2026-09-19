@@ -34,6 +34,23 @@ import 'notes_store.dart';
 import 'note_title.dart';
 import 'strings.dart';
 
+/// What a look at the file turned up.
+///
+/// The distinction the caller needs: nothing happened, the note was quietly taken from disk,
+/// or the file and the editor now hold two different pieces of work and the user has to choose.
+enum ExternalChange {
+  /// The file is exactly what this editor last read or wrote.
+  none,
+
+  /// The file had been changed underneath, and there was nothing unsaved here - so it was
+  /// taken as the truth and the editor now shows it.
+  reloaded,
+
+  /// The file was changed underneath while the editor has unsaved text. Nothing is written
+  /// until the user says which version wins; see [NoteEditorController.hasExternalChange].
+  conflict,
+}
+
 class NoteEditorController extends ChangeNotifier {
   NoteEditorController({
     required this.store,
@@ -82,6 +99,16 @@ class NoteEditorController extends ChangeNotifier {
   Timer? _timer;
   Future<void> _queue = Future<void>.value();
 
+  /// When the file was last known to be ours.
+  ///
+  /// Set after every read and every successful write, and only by those. "Somebody else changed
+  /// this note" is therefore nothing more than the file's timestamp no longer matching this -
+  /// which is what makes the check worth trusting: our own saves move it too, and they move it
+  /// to a value this field then records.
+  DateTime? _stamp;
+
+  bool _externalChange = false;
+
   /// The text as it is being edited, which may be newer than the file on disk.
   String get text => _text;
 
@@ -109,13 +136,31 @@ class NoteEditorController extends ChangeNotifier {
   /// on top of an unread note is exactly how a note gets destroyed.
   bool get canEdit => !_loading && !_loadFailed;
 
+  /// True when the file was changed by something else while this editor had unsaved text.
+  ///
+  /// **Nothing is written while this is set**, including the write that closing the window asks
+  /// for. The note in memory and the note on disk are two different pieces of work by then, and
+  /// any save would silently throw one of them away - which is the failure this whole mechanism
+  /// exists to prevent.
+  bool get hasExternalChange => _externalChange;
+
   /// Reads the note. Call once, from `initState`.
   Future<void> load() async {
+    await _readFromDisk();
+    _loading = false;
+    _notify();
+  }
+
+  /// The read itself, shared by the first load, a retry and [takeDiskVersion].
+  ///
+  /// Records the file's timestamp as the one this editor owns: see [_stamp].
+  Future<void> _readFromDisk() async {
     try {
       final String contents = await store.read(file);
       _text = contents;
       _loadFailed = false;
       _error = null;
+      _stamp = await _timestamp();
     } on FileSystemException catch (error) {
       _loadFailed = true;
       _error = NotesStrings.readFailed(_reasonOf(error));
@@ -125,8 +170,66 @@ class NoteEditorController extends ChangeNotifier {
       _loadFailed = true;
       _error = NotesStrings.readFailed('$error');
     }
-    _loading = false;
+  }
+
+  /// Looks at the file and says whether it is still the one this editor knows.
+  ///
+  /// Called when the folder watcher reports activity, which is the desktop's only way of
+  /// noticing that Syncthing has just put the phone's copy of a note over this one.
+  ///
+  /// With nothing unsaved here the file simply wins: the user has no work of their own in the
+  /// editor, so the newer text is the right text and it is taken without asking. Once something
+  /// *is* unsaved, both versions are real work and only the user can choose - so this stops
+  /// short of touching either and reports an [ExternalChange.conflict].
+  Future<ExternalChange> applyExternalChange() async {
+    if (_loading || _loadFailed || _closed) return ExternalChange.none;
+    final DateTime? stamp = await _timestamp();
+    // Gone, or unreadable: a note that has disappeared is the note list's business, and a file
+    // that cannot be looked at is not evidence of anything.
+    if (stamp == null) return ExternalChange.none;
+    final DateTime? known = _stamp;
+    if (known == null) {
+      _stamp = stamp;
+      return ExternalChange.none;
+    }
+    if (!stamp.isAfter(known)) return ExternalChange.none;
+
+    if (!_dirty) {
+      await _readFromDisk();
+      _notify();
+      return ExternalChange.reloaded;
+    }
+
+    _externalChange = true;
+    // The pending write has to go: it was scheduled before the file changed, and letting it run
+    // would put this editor's text over the other version with nobody being asked.
+    _timer?.cancel();
+    _timer = null;
     _notify();
+    return ExternalChange.conflict;
+  }
+
+  /// Throws the text in the editor away and takes the file's version.
+  ///
+  /// One of the two answers to [hasExternalChange]; the other is [keepMine].
+  Future<void> takeDiskVersion() async {
+    _externalChange = false;
+    _timer?.cancel();
+    _timer = null;
+    await _readFromDisk();
+    // Nothing here is unsaved any more: what the editor holds came out of the file itself.
+    _dirty = false;
+    _notify();
+  }
+
+  /// Keeps the text in the editor, and writes it over the file.
+  ///
+  /// The other answer to [hasExternalChange]. This is the only path that may overwrite a note
+  /// somebody else has changed, and the user has to ask for it.
+  Future<void> keepMine() async {
+    _externalChange = false;
+    _notify();
+    await flush();
   }
 
   /// Tries the read again after a failure.
@@ -249,6 +352,9 @@ class NoteEditorController extends ChangeNotifier {
   /// write is in flight; in that case the note is still dirty when the write
   /// returns and it goes round again with the newer text.
   Future<void> _writeUntilClean() async {
+    // Belongs to somebody else's decision now. Returning with the note still dirty is the
+    // point: the text stays in memory and nothing is written until the user picks a side.
+    if (_externalChange) return;
     while (_dirty) {
       final int edit = _edits;
       final String contents = _text;
@@ -272,6 +378,9 @@ class NoteEditorController extends ChangeNotifier {
       _saving = false;
       _failedWrites = 0;
       _error = null;
+      // The file is this editor's again: its timestamp is what a later external-change check
+      // compares against, so our own write can never look like somebody else's.
+      _stamp = await _timestamp();
       // Cleared only now, and only when nothing was typed during the write.
       if (_edits == edit) {
         _dirty = false;
@@ -286,6 +395,19 @@ class NoteEditorController extends ChangeNotifier {
       // Nobody is waiting for this one; [flush] does not complete with an error.
       unawaited(flush());
     });
+  }
+
+  /// The file's modification time, or null when it cannot be read.
+  ///
+  /// A file that has gone away is not an error here: the note list notices a note that has been
+  /// deleted, and reporting it as an external change would be a second, worse way of saying the
+  /// same thing.
+  Future<DateTime?> _timestamp() async {
+    try {
+      return await file.lastModified();
+    } on FileSystemException {
+      return null;
+    }
   }
 
   /// The readable half of an exception, for a message the user can act on.

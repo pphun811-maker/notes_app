@@ -199,4 +199,74 @@ void main() {
     expect(editor.canEdit, isTrue);
     expect(editor.text, '原始内容');
   });
+
+  // --- a note that somebody else changed underneath ---------------------------------------
+  //
+  // The desktop interface watches the notes folder, because Syncthing puts the phone's copy of
+  // a note there without the app being involved at all. The rule these tests hold down is the
+  // one that matters: the app may never overwrite a version it has not shown the user.
+
+  test('a note changed on disk with nothing unsaved is taken as the truth', () async {
+    await editor.load();
+    await note.writeAsString('手机上改过的内容');
+
+    expect(await editor.applyExternalChange(), ExternalChange.reloaded);
+    expect(editor.text, '手机上改过的内容');
+    expect(editor.hasUnsavedChanges, isFalse);
+    expect(editor.hasExternalChange, isFalse);
+  });
+
+  test('a note changed on disk while the user has typed is never written over', () async {
+    await editor.load();
+    editor.onChanged('我这边打了一半的字');
+    await note.writeAsString('手机上写的内容');
+
+    expect(await editor.applyExternalChange(), ExternalChange.conflict);
+    expect(editor.hasExternalChange, isTrue);
+    // Both versions are still there: the editor kept the user's text, and the file kept the
+    // other machine's.
+    expect(editor.text, '我这边打了一半的字');
+    expect(await note.readAsString(), '手机上写的内容');
+
+    // Even the write that closing the window asks for must not go through, or the conflict
+    // would be decided by whichever machine happened to close last.
+    await editor.close();
+    expect(await note.readAsString(), '手机上写的内容');
+  });
+
+  test('takeDiskVersion throws the editor text away and takes the file', () async {
+    await editor.load();
+    editor.onChanged('我这边打了一半的字');
+    await note.writeAsString('手机上写的内容');
+    await editor.applyExternalChange();
+
+    await editor.takeDiskVersion();
+
+    expect(editor.text, '手机上写的内容');
+    expect(editor.hasExternalChange, isFalse);
+    expect(editor.hasUnsavedChanges, isFalse);
+  });
+
+  test('keepMine writes the editor text over the file, and only when asked', () async {
+    await editor.load();
+    editor.onChanged('我这边打了一半的字');
+    await note.writeAsString('手机上写的内容');
+    await editor.applyExternalChange();
+
+    await editor.keepMine();
+
+    expect(await note.readAsString(), '我这边打了一半的字');
+    expect(editor.hasExternalChange, isFalse);
+    expect(editor.hasUnsavedChanges, isFalse);
+  });
+
+  test('the editor\'s own write is not mistaken for an external change', () async {
+    await editor.load();
+    editor.onChanged('自己打的字');
+    await _waitFor(() => !editor.hasUnsavedChanges);
+    expect(await note.readAsString(), '自己打的字');
+
+    expect(await editor.applyExternalChange(), ExternalChange.none);
+    expect(editor.hasExternalChange, isFalse);
+  });
 }

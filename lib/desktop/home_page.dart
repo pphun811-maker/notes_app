@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 
 import '../design.dart';
 import '../format.dart';
+import '../note_editor_controller.dart';
 import '../notes_store.dart';
 import '../settings.dart';
 import '../strings.dart';
@@ -65,6 +66,10 @@ class _NotesHomePageState extends State<NotesHomePage>
   String? _error;
   double _sidebarWidth = NotesDesktopMetrics.sidebarDefault;
 
+  /// The notes folder's watcher, and the delay that turns its bursts into one refresh.
+  StreamSubscription<FileSystemEvent>? _watch;
+  Timer? _folderDebounce;
+
   /// Whether the note list is folded away.
   ///
   /// Remembered between visits in the app's own settings file (see `settings.dart`), not in the
@@ -87,6 +92,8 @@ class _NotesHomePageState extends State<NotesHomePage>
   @override
   void dispose() {
     appThemeMode.removeListener(_onThemeModeChanged);
+    _folderDebounce?.cancel();
+    unawaited(_watch?.cancel());
     WidgetsBinding.instance.removeObserver(this);
     _search.dispose();
     super.dispose();
@@ -162,7 +169,20 @@ class _NotesHomePageState extends State<NotesHomePage>
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden) {
       unawaited(_editorKey.currentState?.flush());
+      return;
     }
+    // Coming back to the window is the moment to re-read the folder. A watch can have ended
+    // while the app was in the background, and this is the cheap way to find out and to catch
+    // up on anything that happened meanwhile.
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_refreshAndRecheck());
+    }
+  }
+
+  /// Re-reads the folder and re-arms the watch, then looks at the open note.
+  Future<void> _refreshAndRecheck() async {
+    await _refresh();
+    await _checkOpenNote();
   }
 
   Future<void> _loadAccent() async {
@@ -188,6 +208,9 @@ class _NotesHomePageState extends State<NotesHomePage>
           _open = null;
         }
       });
+      // Watched from here rather than from `initState` because the folder has to exist before
+      // it can be watched, and this is the one place that guarantees it does.
+      if (_watch == null) _watchFolder();
     } on FileSystemException catch (error) {
       if (!mounted) return;
       setState(() {
@@ -197,6 +220,64 @@ class _NotesHomePageState extends State<NotesHomePage>
           error.osError?.message ?? error.message,
         );
       });
+    }
+  }
+
+  /// Starts watching the notes folder, once.
+  ///
+  /// The folder is shared with the phone through Syncthing, which writes into it with no
+  /// involvement from this app at all. Without a watch, a note the phone has just written stays
+  /// invisible here until the app is restarted - and a note the phone has just *changed* stays
+  /// invisible while it is open, which is how one machine's work gets overwritten by the
+  /// other's.
+  ///
+  /// `Directory.watch` is `dart:io`, so this costs no dependency: on Windows it is
+  /// `ReadDirectoryChangesW` underneath.
+  void _watchFolder() {
+    try {
+      _watch = _store.directory.watch().listen(
+        (FileSystemEvent _) => _folderChanged(),
+        onError: (Object _) {
+          // A watch can end on its own - a drive unmounting, Syncthing replacing the folder
+          // while it scans. Dropping the subscription puts the app back where it was before
+          // there was one; the next refresh (opening a note, renaming one, coming back to the
+          // window) arms it again.
+          _watch?.cancel();
+          _watch = null;
+        },
+        cancelOnError: true,
+      );
+    } on FileSystemException {
+      // No watch. Everything else still works.
+      _watch = null;
+    }
+  }
+
+  /// One filesystem event, or a burst of them.
+  ///
+  /// Syncthing writes a temporary file, renames it, and touches the folder more than once per
+  /// note; a scan over ten notes can produce a hundred events inside a second. The delay is
+  /// what turns that into a single refresh, and it is also long enough for a file that is still
+  /// being written to have finished being written.
+  void _folderChanged() {
+    _folderDebounce?.cancel();
+    _folderDebounce = Timer(const Duration(milliseconds: 300), () {
+      unawaited(_refresh());
+      unawaited(_checkOpenNote());
+    });
+  }
+
+  /// Asks the open note whether the file underneath it has changed.
+  ///
+  /// The editor decides what to do about the answer: nothing, quietly take the file's version
+  /// because nothing here was unsaved, or stop saving and put the question to the user.
+  Future<void> _checkOpenNote() async {
+    final EditorPaneState? pane = _editorKey.currentState;
+    if (pane == null) return;
+    final ExternalChange change = await pane.applyExternalChange();
+    if (!mounted) return;
+    if (change == ExternalChange.reloaded) {
+      _toast(NotesStrings.externalChangeReloaded);
     }
   }
 

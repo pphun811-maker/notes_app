@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../load_failed_view.dart';
@@ -117,6 +118,30 @@ class EditorPaneState extends State<EditorPane> {
   /// Saves and waits for the file. Leaving is not allowed to race the write.
   Future<void> close() => _editor.close();
 
+  /// Looks at the file and reports whether somebody else has changed it.
+  ///
+  /// Called by the page when the folder watcher fires. What to do about an answer of
+  /// [ExternalChange.conflict] is the user's call, and the banner this pane draws is how they
+  /// are asked.
+  ///
+  /// A reload has to be copied into the text field by hand: the field only ever holds what
+  /// [_syncFields] put there, and nothing else calls it on this path. Without that the note
+  /// would be reloaded in the controller and left on screen exactly as it was.
+  Future<ExternalChange> applyExternalChange() async {
+    final ExternalChange change = await _editor.applyExternalChange();
+    if (change == ExternalChange.reloaded && mounted) _syncFields();
+    return change;
+  }
+
+  /// Takes the file's version, throwing the text in the editor away.
+  ///
+  /// Same hand-off as [applyExternalChange]: the controller reloads, the field has to be told.
+  Future<void> _takeDiskVersion() async {
+    await _editor.takeDiskVersion();
+    if (!mounted) return;
+    _syncFields();
+  }
+
   Future<void> _reload() async {
     await _editor.load();
     if (!mounted) return;
@@ -201,6 +226,59 @@ class EditorPaneState extends State<EditorPane> {
     );
   }
 
+  /// The strip that appears when the file on disk and the text in here are two different
+  /// pieces of work.
+  ///
+  /// It is a strip and not a dialog on purpose: nothing is blocked - the user can keep typing,
+  /// scrolling and copying - right up to the moment they decide which version survives. The
+  /// accent colour rather than a red one because this is not an error: two machines edited the
+  /// same note, which is exactly what the note is being synced for.
+  Widget _externalChangeBanner(NotesDesktopPalette p) {
+    return Container(
+      color: p.hover,
+      padding: const EdgeInsets.fromLTRB(26, 10, 18, 10),
+      child: Row(
+        children: <Widget>[
+          Icon(Icons.sync_problem, size: 17, color: p.accent),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Text(
+                  NotesStrings.externalChangeTitle,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: NotesDesktopType.emphasis,
+                    color: p.ink,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  NotesStrings.externalChangeDetail,
+                  style: TextStyle(fontSize: 12, color: p.sub),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          _BannerButton(
+            palette: p,
+            label: NotesStrings.externalChangeTakeDisk,
+            onPressed: () => unawaited(_takeDiskVersion()),
+          ),
+          const SizedBox(width: 8),
+          _BannerButton(
+            palette: p,
+            label: NotesStrings.externalChangeKeepMine,
+            onPressed: () => unawaited(_editor.keepMine()),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _body_(NotesDesktopPalette p) {
     if (_editor.loading) {
       return Center(child: CircularProgressIndicator(color: p.accent));
@@ -211,6 +289,7 @@ class EditorPaneState extends State<EditorPane> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
+        if (_editor.hasExternalChange) _externalChangeBanner(p),
         Expanded(
           child: SingleChildScrollView(
             child: Center(
@@ -297,11 +376,15 @@ class EditorPaneState extends State<EditorPane> {
   }
 
   Widget _statusLine(NotesDesktopPalette p) {
-    final String state = _editor.error != null
-        ? _editor.error!
-        : (_editor.hasUnsavedChanges
-            ? NotesStrings.savingStatus
-            : NotesStrings.savedStatus(_body.text.characters.length));
+    // A conflict outranks everything else the status line could say: while it is up, the note
+    // is not being saved, and "已保存" would be a lie.
+    final String state = _editor.hasExternalChange
+        ? NotesStrings.externalChangeTitle
+        : _editor.error != null
+            ? _editor.error!
+            : (_editor.hasUnsavedChanges
+                ? NotesStrings.savingStatus
+                : NotesStrings.savedStatus(_body.text.characters.length));
     return SizedBox(
       height: NotesDesktopMetrics.statusHeight,
       child: Padding(
@@ -327,6 +410,60 @@ class EditorPaneState extends State<EditorPane> {
               style: TextStyle(fontSize: 12, color: p.faint),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A button for the external-change banner.
+///
+/// Local to this file rather than shared with the band's buttons: it sits on a filled strip
+/// instead of on the page colour, so its hover has to be a step away from that strip rather
+/// than the usual one.
+class _BannerButton extends StatefulWidget {
+  const _BannerButton({
+    required this.palette,
+    required this.label,
+    required this.onPressed,
+  });
+
+  final NotesDesktopPalette palette;
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  State<_BannerButton> createState() => _BannerButtonState();
+}
+
+class _BannerButtonState extends State<_BannerButton> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final NotesDesktopPalette p = widget.palette;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (PointerEnterEvent _) => setState(() => _hovered = true),
+      onExit: (PointerExitEvent _) => setState(() => _hovered = false),
+      child: GestureDetector(
+        onTap: widget.onPressed,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 90),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: _hovered ? p.line : p.surface,
+            borderRadius:
+                BorderRadius.circular(NotesDesktopMetrics.radiusControl),
+          ),
+          child: Text(
+            widget.label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: NotesDesktopType.medium,
+              color: p.ink,
+            ),
+          ),
         ),
       ),
     );
