@@ -1,4 +1,4 @@
-﻿/// The handful of things the app remembers between visits.
+/// The handful of things the app remembers between visits.
 ///
 /// The editor's text settings (font size, line height, and whether the body is drawn in the
 /// monospace face), which conflict-copy notices the user has swiped away, and whether the
@@ -25,6 +25,7 @@ class NotesSettings {
     required this.lineHeight,
     required this.monoFont,
     this.sidebarCollapsed = false,
+    this.themeMode = 'system',
   });
 
   /// What a fresh install uses: the design's size and the line height the user settled on.
@@ -44,17 +45,25 @@ class NotesSettings {
   /// and every existing `NotesSettings(...)` call site is about the editor.
   final bool sidebarCollapsed;
 
+  /// `'system'`, `'light'` or `'dark'` - see `themeModeName` in `design.dart`.
+  ///
+  /// A string rather than a `ThemeMode` so that this file stays out of the widgets layer; the
+  /// mapping lives next to the notifier it feeds.
+  final String themeMode;
+
   NotesSettings copyWith({
     double? fontSize,
     double? lineHeight,
     bool? monoFont,
     bool? sidebarCollapsed,
+    String? themeMode,
   }) {
     return NotesSettings(
       fontSize: fontSize ?? this.fontSize,
       lineHeight: lineHeight ?? this.lineHeight,
       monoFont: monoFont ?? this.monoFont,
       sidebarCollapsed: sidebarCollapsed ?? this.sidebarCollapsed,
+      themeMode: themeMode ?? this.themeMode,
     );
   }
 
@@ -63,7 +72,8 @@ class NotesSettings {
   String encode() => 'fontSize=$fontSize\n'
       'lineHeight=$lineHeight\n'
       'monoFont=$monoFont\n'
-      'sidebarCollapsed=$sidebarCollapsed\n';
+      'sidebarCollapsed=$sidebarCollapsed\n'
+      'themeMode=$themeMode\n';
 
   /// Reads back [encode], falling back to the defaults for anything missing or unreadable.
   ///
@@ -73,6 +83,7 @@ class NotesSettings {
     double lineHeight = defaults.lineHeight;
     bool monoFont = defaults.monoFont;
     bool sidebarCollapsed = defaults.sidebarCollapsed;
+    String themeMode = defaults.themeMode;
     for (final String line in text.split('\n')) {
       final int split = line.indexOf('=');
       if (split <= 0) continue;
@@ -87,6 +98,8 @@ class NotesSettings {
           monoFont = value == 'true';
         case 'sidebarCollapsed':
           sidebarCollapsed = value == 'true';
+        case 'themeMode':
+          if (value.isNotEmpty) themeMode = value;
       }
     }
     return NotesSettings(
@@ -94,6 +107,7 @@ class NotesSettings {
       lineHeight: lineHeight,
       monoFont: monoFont,
       sidebarCollapsed: sidebarCollapsed,
+      themeMode: themeMode,
     );
   }
 
@@ -103,15 +117,21 @@ class NotesSettings {
       other.fontSize == fontSize &&
       other.lineHeight == lineHeight &&
       other.monoFont == monoFont &&
-      other.sidebarCollapsed == sidebarCollapsed;
+      other.sidebarCollapsed == sidebarCollapsed &&
+      other.themeMode == themeMode;
 
   @override
-  int get hashCode =>
-      Object.hash(fontSize, lineHeight, monoFont, sidebarCollapsed);
+  int get hashCode => Object.hash(
+        fontSize,
+        lineHeight,
+        monoFont,
+        sidebarCollapsed,
+        themeMode,
+      );
 
   @override
   String toString() => 'NotesSettings($fontSize, $lineHeight, mono=$monoFont, '
-      'sidebarCollapsed=$sidebarCollapsed)';
+      'sidebarCollapsed=$sidebarCollapsed, themeMode=$themeMode)';
 }
 
 /// The one settings store for the app.

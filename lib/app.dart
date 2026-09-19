@@ -23,16 +23,21 @@ class NotesApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: NotesStrings.appTitle,
-      debugShowCheckedModeBanner: false,
-      theme: NotesTheme.light(),
-      darkTheme: NotesTheme.dark(),
-      // The app follows the system setting. The design only specifies a dark list
-      // page; the editor inherits the same rules (dark ground, dark card, dimmed
-      // hairlines, unchanged yellow).
-      themeMode: ThemeMode.system,
-      home: const _Root(),
+    // Rebuilt when the user picks a theme from the Windows interface's own button. Following
+    // the system is the starting point; picking one overrides it until they go back.
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: appThemeMode,
+      builder: (BuildContext context, ThemeMode mode, Widget? _) {
+        return MaterialApp(
+          title: NotesStrings.appTitle,
+          debugShowCheckedModeBanner: false,
+          theme: NotesTheme.light(),
+          darkTheme: NotesTheme.dark(),
+          // The app follows the system setting until the user says otherwise.
+          themeMode: mode,
+          home: const _Root(),
+        );
+      },
     );
   }
 }

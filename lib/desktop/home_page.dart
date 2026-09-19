@@ -6,6 +6,7 @@ import 'dart:ui' show AppExitResponse;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../design.dart';
 import '../format.dart';
 import '../notes_store.dart';
 import '../settings.dart';
@@ -74,9 +75,25 @@ class _NotesHomePageState extends State<NotesHomePage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // The page draws the button that changes this, so it has to hear about the change even
+    // when the pixels do not: light → dark while Windows is already dark looks like nothing
+    // happened until the icon says otherwise.
+    appThemeMode.addListener(_onThemeModeChanged);
     unawaited(_loadAccent());
     unawaited(_loadSettings());
     unawaited(_refresh());
+  }
+
+  @override
+  void dispose() {
+    appThemeMode.removeListener(_onThemeModeChanged);
+    WidgetsBinding.instance.removeObserver(this);
+    _search.dispose();
+    super.dispose();
+  }
+
+  void _onThemeModeChanged() {
+    if (mounted) setState(() {});
   }
 
   /// Picks up what the last visit left behind.
@@ -87,6 +104,10 @@ class _NotesHomePageState extends State<NotesHomePage>
   Future<void> _loadSettings() async {
     final NotesSettings settings = await appSettings.load();
     if (!mounted) return;
+    // The theme lives in a notifier the root MaterialApp listens to, so it is set before the
+    // page's own state: the window should not repaint twice for one setting.
+    final ThemeMode mode = themeModeFromName(settings.themeMode);
+    if (appThemeMode.value != mode) appThemeMode.value = mode;
     if (settings.sidebarCollapsed == _sidebarCollapsed) return;
     setState(() => _sidebarCollapsed = settings.sidebarCollapsed);
   }
@@ -104,11 +125,24 @@ class _NotesHomePageState extends State<NotesHomePage>
     );
   }
 
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    _search.dispose();
-    super.dispose();
+  /// Steps through follow-the-system, light, dark, and round again.
+  ///
+  /// A cycle rather than a two-way switch because "follow Windows" is where the app starts and
+  /// there would otherwise be no way back to it: Windows' own theme setting is the one most
+  /// people change, and an app that has silently stopped listening to it is a bug report
+  /// waiting to happen. The tooltip names what the next press does.
+  void _cycleTheme() {
+    final ThemeMode next = switch (appThemeMode.value) {
+      ThemeMode.system => ThemeMode.light,
+      ThemeMode.light => ThemeMode.dark,
+      ThemeMode.dark => ThemeMode.system,
+    };
+    appThemeMode.value = next;
+    unawaited(
+      appSettings.save(
+        appSettings.value.copyWith(themeMode: themeModeName(next)),
+      ),
+    );
   }
 
   /// The window is going away: put the last keystrokes on disk before it does.
@@ -344,6 +378,24 @@ class _NotesHomePageState extends State<NotesHomePage>
                 ? NotesStrings.desktopSidebarExpand
                 : NotesStrings.desktopSidebarCollapse,
             onPressed: _toggleSidebar,
+          ),
+          _BandButton(
+            palette: p,
+            icon: switch (appThemeMode.value) {
+              ThemeMode.light => Icons.light_mode,
+              ThemeMode.dark => Icons.dark_mode,
+              ThemeMode.system => Icons.brightness_auto,
+            },
+            tooltip: switch (appThemeMode.value) {
+              ThemeMode.light => NotesStrings.desktopThemeToDark,
+              ThemeMode.dark => NotesStrings.desktopThemeToSystem,
+              ThemeMode.system => NotesStrings.desktopThemeToLight,
+            },
+            // The icon has to follow the notifier, not the page's own state. The page does
+            // rebuild whenever the *effective* theme changes, but picking "dark" while Windows
+            // is already dark changes nothing on screen, and the button would keep saying
+            // "follow the system".
+            onPressed: _cycleTheme,
           ),
         ],
       ),

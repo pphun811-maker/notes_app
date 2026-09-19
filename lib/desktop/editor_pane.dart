@@ -57,7 +57,11 @@ class EditorPaneState extends State<EditorPane> {
     file: widget.file,
   );
 
-  late final MarkdownEditingController _body = MarkdownEditingController();
+  late final MarkdownEditingController _body = MarkdownEditingController(
+    palette: widget.palette.rendererPalette,
+    emphasis: NotesDesktopType.emphasis,
+    monoFamily: NotesDesktopType.monoFamily,
+  );
 
   final TextEditingController _title = TextEditingController();
   final FocusNode _titleFocus = FocusNode();
@@ -69,6 +73,29 @@ class EditorPaneState extends State<EditorPane> {
     _editor.addListener(_onEditorChanged);
     _titleFocus.addListener(_onTitleFocusChanged);
     unawaited(_reload());
+  }
+
+  /// The palette is rebuilt whenever the theme changes, and the body has to repaint with it.
+  ///
+  /// Without this the note keeps the colours its controller was created with until the note is
+  /// closed and opened again - which is exactly what switching to the light theme while reading
+  /// would run into.
+  ///
+  /// Compared by value, not by identity: [NotesDesktopPalette] is constructed fresh on every
+  /// build of the page, so `old != widget` is always true, and repainting on that would loop
+  /// forever.
+  ///
+  /// Assigning the palette is the whole of it - the rebuild that follows this call takes the
+  /// text field through `buildTextSpan` again. Asking the controller to notify instead would
+  /// mean reaching for a member `ChangeNotifier` keeps to its subclasses.
+  @override
+  void didUpdateWidget(EditorPane old) {
+    super.didUpdateWidget(old);
+    if (old.palette.isDark == widget.palette.isDark &&
+        old.palette.accent == widget.palette.accent) {
+      return;
+    }
+    _body.palette = widget.palette.rendererPalette;
   }
 
   @override

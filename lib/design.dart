@@ -337,6 +337,30 @@ abstract final class NotesType {
   static const FontWeight emphasis = FontWeight.w800;
 }
 
+/// Which of the two themes the user picked, if either.
+///
+/// A notifier rather than a field passed down the tree: the thing that has to change is the
+/// [MaterialApp] at the root, and the button that changes it lives several layers below.
+///
+/// `ThemeMode.system` is the default and means nobody has chosen yet - the app follows Windows,
+/// which is what it did before there was a switch at all.
+final ValueNotifier<ThemeMode> appThemeMode =
+    ValueNotifier<ThemeMode>(ThemeMode.system);
+
+/// The name a [ThemeMode] is remembered under. Short, and stable across releases.
+String themeModeName(ThemeMode mode) => switch (mode) {
+      ThemeMode.light => 'light',
+      ThemeMode.dark => 'dark',
+      ThemeMode.system => 'system',
+    };
+
+/// Reads back [themeModeName]; anything unrecognised means "follow the system".
+ThemeMode themeModeFromName(String name) => switch (name) {
+      'light' => ThemeMode.light,
+      'dark' => ThemeMode.dark,
+      _ => ThemeMode.system,
+    };
+
 /// The single source of truth for the app's `ThemeData`, light and dark.
 abstract final class NotesTheme {
   /// The accent as a Material [ColorScheme], so stock widgets that we do not draw

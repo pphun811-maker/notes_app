@@ -125,6 +125,12 @@ abstract final class NotesStrings {
   static const String desktopSidebarCollapse = '收起列表 (Ctrl+B)';
   static const String desktopSidebarExpand = '展开列表 (Ctrl+B)';
 
+  /// The theme button says what pressing it *does*, not what the current state is - the icon
+  /// shows the state.
+  static const String desktopThemeToLight = '切换到浅色';
+  static const String desktopThemeToDark = '切换到深色';
+  static const String desktopThemeToSystem = '跟随系统';
+
   /// Shown instead of the editor when the note could not be read. The note stays
   /// read-only until the user retries, so that an empty editor can never replace
   /// contents the app never managed to read.

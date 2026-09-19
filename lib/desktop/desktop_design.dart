@@ -200,10 +200,14 @@ abstract final class NotesDesktopMetrics {
 
   /// What is left of the band's left-hand part once the note list is folded away.
   ///
-  /// The button that folds it has to stay reachable, so the band keeps a narrow rail for it
-  /// and the tab strip starts after that - the same way it starts after the whole sidebar when
-  /// the list is open.
-  static const double sidebarRail = 46;
+  /// The buttons that live there have to stay reachable - a button that hides itself cannot be
+  /// pressed again - so the band keeps a narrow rail for them and the tab strip starts after
+  /// that, the same way it starts after the whole sidebar when the list is open.
+  ///
+  /// Wide enough for **both** of them (6 + 34 + 2 + 34 + 8): the rail was 46 when there was
+  /// only the fold button, and the second button then painted underneath the tab strip, where
+  /// it was invisible and a click on it started a window drag instead.
+  static const double sidebarRail = 84;
 
   /// The window buttons at the right-hand end of that band.
   static const double windowButtonWidth = 46;
