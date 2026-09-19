@@ -119,6 +119,15 @@ class NotesDesktopPalette {
   final Color accent;
   final bool isDark;
 
+  /// The band drawn behind selected text.
+  ///
+  /// Spelled out rather than left to Material. The colour a `TextField` selects with otherwise
+  /// comes from the *app's* colour scheme, which is the phone's amber - the desktop's own
+  /// palette never reaches it, and selecting a note's title drew a gold band under a blue
+  /// caret. Measured before it was fixed: `#785C1C`, which is exactly `#FFB814` at 40% over
+  /// this surface.
+  Color get selection => accent.withValues(alpha: 0.35);
+
   static NotesDesktopPalette light(SystemAccent accent) =>
       NotesDesktopPalette(
         page: const Color(0xFFF0F0F2),

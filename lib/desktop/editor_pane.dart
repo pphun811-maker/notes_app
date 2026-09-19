@@ -115,6 +115,19 @@ class EditorPaneState extends State<EditorPane> {
   /// closes, so a switch of notes can never lose the last keystrokes.
   Future<void> flush() => _editor.flush();
 
+  /// Puts the caret in the title field with the whole name selected.
+  ///
+  /// This is what the note list's "重命名" does. The title *is* the file name, so renaming is
+  /// editing this field - a second dialog asking for a name would be a second place that decides
+  /// what the file is called, and the two could disagree.
+  void startRename() {
+    _titleFocus.requestFocus();
+    _title.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: _title.text.length,
+    );
+  }
+
   /// Whether this note has text that is not on disk yet.
   ///
   /// The shell reads this to draw the dot on the tab. The pane owns the controller, so the pane

@@ -157,6 +157,15 @@ class NotesSettingsStore {
   /// almost anything, and this way no separator has to be chosen that a name could contain.
   static const String _dismissedKey = 'dismissedConflicts';
 
+  /// The key the pinned notes are written under, one line per title - same reasoning as
+  /// [_dismissedKey], and a title is a file name.
+  ///
+  /// Kept in this machine's own settings rather than in the notes themselves: a note is a plain
+  /// `.md` file that Syncthing carries to the phone, and "this one is at the top of the list"
+  /// is a fact about *this* list, not about the note. Writing it into the file would change the
+  /// user's text and sync that change to the phone, where nothing would read it.
+  static const String _pinnedKey = 'pinnedNote';
+
   final Future<String?> Function() _configDirectory;
 
   NotesSettings _value = NotesSettings.defaults;
@@ -168,6 +177,13 @@ class NotesSettingsStore {
   /// shown even though an earlier one was dismissed.
   List<String> _dismissedConflicts = <String>[];
 
+  /// The titles the user has pinned, in the order they were pinned.
+  ///
+  /// By title, which is the file name without its extension. A rename therefore moves the pin
+  /// with it only because the page says so (see `_afterRename` in `home_page.dart`); nothing
+  /// here can notice a file moving on its own.
+  List<String> _pinnedNotes = <String>[];
+
   bool _loaded = false;
 
   /// The current settings, whether or not they have been read from disk yet.
@@ -176,6 +192,12 @@ class NotesSettingsStore {
   /// The names the user has dismissed, oldest first.
   List<String> get dismissedConflicts =>
       List<String>.unmodifiable(_dismissedConflicts);
+
+  /// The titles the user has pinned, in the order they were pinned.
+  List<String> get pinnedNotes => List<String>.unmodifiable(_pinnedNotes);
+
+  /// Whether the note called [title] is pinned.
+  bool isPinned(String title) => _pinnedNotes.contains(title);
 
   /// Whether the user has already swiped away the notice for [fileName].
   bool isConflictDismissed(String fileName) =>
@@ -196,6 +218,7 @@ class NotesSettingsStore {
         final String text = await file.readAsString();
         _value = NotesSettings.decode(text);
         _dismissedConflicts = _decodeDismissed(text);
+        _pinnedNotes = _decodeList(text, _pinnedKey);
       }
     } on FileSystemException {
       // Keep the defaults; a note must still open.
@@ -223,6 +246,31 @@ class NotesSettingsStore {
     await _write();
   }
 
+  /// Pins [title], or unpins it when it is already pinned.
+  ///
+  /// The in-memory list changes before the first `await` so the list is already in its new order
+  /// by the time the caller rebuilds; the write itself is best-effort, like every other setting.
+  Future<void> togglePinned(String title) async {
+    final List<String> next = <String>[..._pinnedNotes];
+    if (!next.remove(title)) next.add(title);
+    _pinnedNotes = next;
+    _loaded = true;
+    await _write();
+  }
+
+  /// Follows a rename, so a pinned note stays pinned under its new title.
+  ///
+  /// A no-op when [from] was not pinned, which is what keeps this safe to call on every rename.
+  Future<void> renamePinned(String from, String to) async {
+    if (from == to) return;
+    final int at = _pinnedNotes.indexOf(from);
+    if (at < 0) return;
+    final List<String> next = <String>[..._pinnedNotes];
+    next[at] = to;
+    _pinnedNotes = next;
+    await _write();
+  }
+
   /// Never throws - failing to remember a font size must not interrupt writing a note.
   Future<void> _write() async {
     final File? file = await _file();
@@ -240,24 +288,30 @@ class NotesSettingsStore {
     for (final String name in _dismissedConflicts) {
       buffer.writeln('$_dismissedKey=$name');
     }
+    for (final String title in _pinnedNotes) {
+      buffer.writeln('$_pinnedKey=$title');
+    }
     return buffer.toString();
   }
 
-  /// The dismissed names in [text], in the order they were written.
+  /// The values written under [key] in [text], in the order they appear, without duplicates.
   ///
-  /// `NotesSettings.decode` ignores keys it does not know, so the two readers can share one
-  /// file without either having to know the other's keys.
-  static List<String> _decodeDismissed(String text) {
-    final List<String> names = <String>[];
+  /// `NotesSettings.decode` ignores keys it does not know, so the three readers can share one
+  /// file without any of them having to know the others' keys.
+  static List<String> _decodeList(String text, String key) {
+    final List<String> values = <String>[];
     for (final String line in text.split('\n')) {
       final int split = line.indexOf('=');
       if (split <= 0) continue;
-      if (line.substring(0, split).trim() != _dismissedKey) continue;
-      final String name = line.substring(split + 1).trim();
-      if (name.isNotEmpty && !names.contains(name)) names.add(name);
+      if (line.substring(0, split).trim() != key) continue;
+      final String value = line.substring(split + 1).trim();
+      if (value.isNotEmpty && !values.contains(value)) values.add(value);
     }
-    return names;
+    return values;
   }
+
+  static List<String> _decodeDismissed(String text) =>
+      _decodeList(text, _dismissedKey);
 
   File? _cached;
 

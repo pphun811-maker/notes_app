@@ -17,6 +17,7 @@ import '../strings.dart';
 import 'desktop_design.dart';
 import 'editor_pane.dart';
 import 'note_tabs.dart';
+import 'recycle_bin.dart';
 import 'window_channel.dart';
 
 /// The Windows interface.
@@ -392,9 +393,29 @@ class _NotesHomePageState extends State<NotesHomePage>
 
   void _toast(String message) {
     if (!mounted) return;
+    final NotesDesktopPalette p = _paletteFor(context);
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
+      ..showSnackBar(
+        // Styled from the desktop palette rather than left to Material's defaults: those draw a
+        // full-width light bar across the bottom of a dark window, which was the one thing on
+        // screen that belonged to neither theme.
+        SnackBar(
+          content: Text(
+            message,
+            style: TextStyle(fontSize: 13, color: p.ink),
+          ),
+          behavior: SnackBarBehavior.floating,
+          width: 340,
+          elevation: 0,
+          backgroundColor: p.hover,
+          duration: const Duration(seconds: 2),
+          shape: RoundedRectangleBorder(
+            borderRadius:
+                BorderRadius.circular(NotesDesktopMetrics.radiusControl),
+          ),
+        ),
+      );
   }
 
   List<Note> get _visibleNotes {
@@ -409,10 +430,8 @@ class _NotesHomePageState extends State<NotesHomePage>
 
   @override
   Widget build(BuildContext context) {
+    final NotesDesktopPalette p = _paletteFor(context);
     final Brightness brightness = Theme.of(context).brightness;
-    final NotesDesktopPalette p = brightness == Brightness.dark
-        ? NotesDesktopPalette.dark(_accent)
-        : NotesDesktopPalette.light(_accent);
 
     return CallbackShortcuts(
       bindings: <ShortcutActivator, VoidCallback>{
@@ -442,6 +461,17 @@ class _NotesHomePageState extends State<NotesHomePage>
               fontFamily: NotesDesktopType.fontFamily,
               fontFamilyFallback: NotesDesktopType.fontFamilyFallback,
             ),
+        // The band behind selected text has to be said here, and said again rather than left to
+        // Material. `TextField` has no `selectionColor` of its own, and Material resolves the
+        // colour from the *app's* scheme - the phone's amber - into `textSelectionTheme` when
+        // the `ThemeData` is built, which `copyWith(colorScheme: …)` above cannot undo. The
+        // result was a gold band under a blue caret. Measured before the fix: `#785C1C`, which
+        // is `#FFB814` at 40% over this surface.
+        textSelectionTheme: TextSelectionThemeData(
+          cursorColor: p.accent,
+          selectionColor: p.selection,
+          selectionHandleColor: p.accent,
+        ),
       ),
       child: Scaffold(
         backgroundColor: p.page,
@@ -473,6 +503,17 @@ class _NotesHomePageState extends State<NotesHomePage>
       ),
       ),
     );
+  }
+
+  /// The palette for whatever brightness is in force.
+  ///
+  /// Built fresh on every call rather than cached: the theme can change under it at any moment,
+  /// and the dialogs and menus raised from callbacks outside `build` need the same one the page
+  /// is drawn with.
+  NotesDesktopPalette _paletteFor(BuildContext context) {
+    return Theme.of(context).brightness == Brightness.dark
+        ? NotesDesktopPalette.dark(_accent)
+        : NotesDesktopPalette.light(_accent);
   }
 
   /// The sidebar's width in a window this wide.
@@ -748,6 +789,7 @@ class _NotesHomePageState extends State<NotesHomePage>
 
   Widget _sidebar(NotesDesktopPalette p) {
     final List<Note> notes = _visibleNotes;
+    final List<Object> rows = _sidebarRows(notes);
     return ColoredBox(
       color: p.page,
       child: Column(
@@ -794,20 +836,27 @@ class _NotesHomePageState extends State<NotesHomePage>
             ),
           ),
           const SizedBox(height: 14),
-          _sectionLabel(p, NotesStrings.desktopNoteCountSection),
           Expanded(
             child: ListView.builder(
               padding: const EdgeInsets.only(bottom: 8),
-              itemCount: notes.length,
+              itemCount: rows.length,
               itemBuilder: (BuildContext context, int index) {
-                final Note note = notes[index];
+                final Object entry = rows[index];
+                if (entry is _SectionHeading) {
+                  return _sectionLabel(p, entry.text, top: entry.topGap);
+                }
+                final Note note = entry as Note;
                 return _NoteRow(
                   note: note,
                   palette: p,
+                  pinned: appSettings.isPinned(note.title),
                   // The row marks the note being edited, not every note that happens to be
                   // open: the open ones are what the tab strip is for.
                   selected: _tabs.current?.path == note.file.path,
                   onTap: () => _openNote(note),
+                  onContextMenu: (Offset at) =>
+                      unawaited(_showNoteMenu(note, at)),
+                  onTogglePin: () => unawaited(_togglePin(note)),
                 );
               },
             ),
@@ -834,14 +883,44 @@ class _NotesHomePageState extends State<NotesHomePage>
     );
   }
 
-  Widget _sectionLabel(NotesDesktopPalette p, String label) {
+  Widget _sectionLabel(NotesDesktopPalette p, String label, {double top = 0}) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(22, 0, 22, 8),
+      padding: EdgeInsets.fromLTRB(22, top, 22, 8),
       child: Text(
         label,
         style: TextStyle(fontSize: 11, color: p.faint),
       ),
     );
+  }
+
+  /// The sidebar's rows in order: a heading, then the notes under it.
+  ///
+  /// Two sections as soon as anything is pinned - the pinned notes, then the rest - and the
+  /// design's single "全部笔记" when nothing is. A pinned note is listed **only** under
+  /// "已置顶": showing it twice would make the list longer without telling the user anything
+  /// they did not already know, and the note they were reading would appear to have moved.
+  ///
+  /// The search narrows both sections rather than flattening them, so pinning keeps meaning the
+  /// same thing while a search is on.
+  List<Object> _sidebarRows(List<Note> notes) {
+    final List<Note> pinned = <Note>[];
+    final List<Note> rest = <Note>[];
+    for (final Note note in notes) {
+      (appSettings.isPinned(note.title) ? pinned : rest).add(note);
+    }
+    return <Object>[
+      if (pinned.isNotEmpty) ...<Object>[
+        const _SectionHeading(NotesStrings.desktopPinnedSection),
+        ...pinned,
+      ],
+      // The gap only shows when a section was drawn above it; the first heading is already
+      // spaced by the search field's own margin.
+      _SectionHeading(
+        NotesStrings.desktopNoteCountSection,
+        topGap: pinned.isEmpty ? 0 : 16,
+      ),
+      ...rest,
+    ];
   }
 
   /// Drag to make the sidebar wider or narrower.
@@ -912,7 +991,190 @@ class _NotesHomePageState extends State<NotesHomePage>
   /// decide the note it is holding has been deleted and close the editor the user is typing in.
   Future<void> _afterRename(File from, File to) async {
     _setTabs(_tabs.replace(from, to));
+    // A pin is kept by title, so a rename would otherwise silently drop it - and the note the
+    // user deliberately put at the top would slide back down the list for no visible reason.
+    await appSettings.renamePinned(
+      Note.fileNameWithoutExtension(from),
+      Note.fileNameWithoutExtension(to),
+    );
     await _refresh();
+  }
+
+  // --- what the note list's right-click menu does --------------------------
+
+  /// Pins [note], or takes the pin off it.
+  Future<void> _togglePin(Note note) async {
+    final bool wasPinned = appSettings.isPinned(note.title);
+    await appSettings.togglePinned(note.title);
+    if (!mounted) return;
+    setState(() {});
+    _toast(wasPinned
+        ? NotesStrings.desktopUnpinnedNote(note.title)
+        : NotesStrings.desktopPinnedNote(note.title));
+  }
+
+  /// Asks, then moves [note] to the Windows Recycle Bin.
+  ///
+  /// The tab goes first and is awaited. Closing it is what writes any unsaved text, and a
+  /// delete that ran ahead of that write would see the file come straight back a moment later.
+  Future<void> _confirmDelete(Note note) async {
+    final NotesDesktopPalette p = _paletteFor(context);
+    final bool? go = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) => AlertDialog(
+        backgroundColor: p.surface,
+        title: Text(
+          NotesStrings.confirmDeleteOne,
+          style: TextStyle(fontSize: 16, color: p.ink),
+        ),
+        content: Text(
+          NotesStrings.desktopDeleteDetail(note.title),
+          style: TextStyle(fontSize: 13, color: p.sub),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text(
+              NotesStrings.cancel,
+              style: TextStyle(color: p.sub),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(
+              NotesStrings.delete,
+              style: TextStyle(color: p.accent),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (go != true || !mounted) return;
+
+    final int open = _tabs.indexOf(note.file);
+    if (open >= 0) await _closeTab(open);
+    if (!mounted) return;
+
+    final String? failure = await deleteToRecycleBin(note.file);
+    if (!mounted) return;
+    if (failure != null) {
+      _toast(NotesStrings.desktopDeleteFailed(failure));
+      return;
+    }
+    await _refresh();
+    if (!mounted) return;
+    _toast(NotesStrings.desktopDeletedOne(note.title));
+  }
+
+  /// Opens the folder with [note]'s file already selected.
+  ///
+  /// `explorer` is started rather than run: it hands the request to the desktop process that is
+  /// already there and exits with a non-zero code even when it worked, so there is no exit code
+  /// worth waiting for. The comma belongs to the switch - it is one argument, not two.
+  Future<void> _revealInExplorer(Note note) async {
+    try {
+      await Process.start(
+        'explorer.exe',
+        <String>['/select,${note.file.path}'],
+        mode: ProcessStartMode.detached,
+      );
+    } on ProcessException {
+      if (mounted) _toast(NotesStrings.desktopRevealFailed);
+    }
+  }
+
+  Future<void> _copyPath(Note note) async {
+    await Clipboard.setData(ClipboardData(text: note.file.path));
+    if (mounted) _toast(NotesStrings.desktopPathCopied);
+  }
+
+  /// Opens [note] and puts the caret in its title, ready to be typed over.
+  ///
+  /// A frame has to go by first: the pane for a note that was not already open does not exist
+  /// until the build that opening it triggers.
+  void _renameNote(Note note) {
+    _openNote(note);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _paneKeys[note.file.path]?.currentState?.startRename();
+    });
+  }
+
+  /// The note list's context menu.
+  ///
+  /// "重命名" does not open a dialog: the title *is* the file name and the editor already edits
+  /// it, so this only puts the caret there. A second field asking for a name would be a second
+  /// answer to the same question.
+  Future<void> _showNoteMenu(Note note, Offset at) async {
+    final NotesDesktopPalette p = _paletteFor(context);
+    final bool pinned = appSettings.isPinned(note.title);
+    const String open = 'open';
+    const String rename = 'rename';
+    const String reveal = 'reveal';
+    const String copy = 'copy';
+    const String pin = 'pin';
+    const String remove = 'remove';
+
+    final String? choice = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(at.dx, at.dy, at.dx, at.dy),
+      color: p.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(NotesDesktopMetrics.radiusControl),
+      ),
+      items: <PopupMenuEntry<String>>[
+        _menuItem(p, open, Icons.article_outlined, NotesStrings.desktopMenuOpen),
+        _menuItem(p, rename, Icons.drive_file_rename_outline,
+            NotesStrings.desktopMenuRename),
+        const PopupMenuDivider(),
+        _menuItem(p, reveal, Icons.folder_open,
+            NotesStrings.desktopMenuReveal),
+        _menuItem(p, copy, Icons.content_copy, NotesStrings.desktopMenuCopyPath),
+        const PopupMenuDivider(),
+        _menuItem(
+          p,
+          pin,
+          pinned ? Icons.push_pin : Icons.push_pin_outlined,
+          pinned ? NotesStrings.desktopMenuUnpin : NotesStrings.desktopMenuPin,
+        ),
+        const PopupMenuDivider(),
+        _menuItem(p, remove, Icons.delete_outline, NotesStrings.delete),
+      ],
+    );
+    if (choice == null || !mounted) return;
+
+    switch (choice) {
+      case open:
+        _openNote(note);
+      case rename:
+        _renameNote(note);
+      case reveal:
+        await _revealInExplorer(note);
+      case copy:
+        await _copyPath(note);
+      case pin:
+        await _togglePin(note);
+      case remove:
+        await _confirmDelete(note);
+    }
+  }
+
+  PopupMenuItem<String> _menuItem(
+    NotesDesktopPalette p,
+    String value,
+    IconData icon,
+    String label,
+  ) {
+    return PopupMenuItem<String>(
+      value: value,
+      height: 34,
+      child: Row(
+        children: <Widget>[
+          Icon(icon, size: 15, color: p.sub),
+          const SizedBox(width: 10),
+          Text(label, style: TextStyle(fontSize: 13, color: p.ink)),
+        ],
+      ),
+    );
   }
 }
 
@@ -1023,19 +1285,45 @@ class _SearchField extends StatelessWidget {
   }
 }
 
+/// A section heading in the note list: "已置顶" or "全部笔记".
+///
+/// A type of its own so that the list can hold headings and notes in one ordered `List<Object>`
+/// without either being able to be mistaken for the other.
+class _SectionHeading {
+  const _SectionHeading(this.text, {this.topGap = 0});
+
+  final String text;
+
+  /// The room above it. Zero for the first heading, which the search field already spaces.
+  final double topGap;
+}
+
 /// One note in the sidebar: icon, title, preview, and the date on the right.
+///
+/// A pinned note also carries the pin on the second line, at the right-hand end - measured off
+/// the mock-up, where the glyph's centre sits 22 from the sidebar's edge and 38 down from the
+/// row's top, which is the line the preview is on.
 class _NoteRow extends StatefulWidget {
   const _NoteRow({
     required this.note,
     required this.palette,
     required this.selected,
+    required this.pinned,
     required this.onTap,
+    required this.onContextMenu,
+    required this.onTogglePin,
   });
 
   final Note note;
   final NotesDesktopPalette palette;
   final bool selected;
+  final bool pinned;
   final VoidCallback onTap;
+
+  /// The right-click menu, with the pointer's position in global coordinates.
+  final ValueChanged<Offset> onContextMenu;
+
+  final VoidCallback onTogglePin;
 
   @override
   State<_NoteRow> createState() => _NoteRowState();
@@ -1055,6 +1343,8 @@ class _NoteRowState extends State<_NoteRow> {
       onExit: (PointerExitEvent _) => setState(() => _hovered = false),
       child: GestureDetector(
         onTap: widget.onTap,
+        onSecondaryTapDown: (TapDownDetails details) =>
+            widget.onContextMenu(details.globalPosition),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
           child: Container(
@@ -1097,7 +1387,7 @@ class _NoteRowState extends State<_NoteRow> {
                 ),
                 Positioned(
                   left: NotesDesktopMetrics.listTextLeft - 12,
-                  right: 52,
+                  right: widget.pinned ? 38 : 52,
                   top: 30,
                   child: Text(
                     // Just the note's first line. It used to be `formatNoteSubtitle`, which
@@ -1119,7 +1409,57 @@ class _NoteRowState extends State<_NoteRow> {
                     style: TextStyle(fontSize: 11, color: p.faint),
                   ),
                 ),
+                if (widget.pinned)
+                  Positioned(
+                    right: 0,
+                    top: 28,
+                    width: 20,
+                    height: 20,
+                    child: _PinButton(
+                      palette: p,
+                      onPressed: widget.onTogglePin,
+                    ),
+                  ),
               ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The pin on a pinned row. Pressing it takes the pin off, which is the one thing anybody wants
+/// to do to a pin they can see.
+class _PinButton extends StatefulWidget {
+  const _PinButton({required this.palette, required this.onPressed});
+
+  final NotesDesktopPalette palette;
+  final VoidCallback onPressed;
+
+  @override
+  State<_PinButton> createState() => _PinButtonState();
+}
+
+class _PinButtonState extends State<_PinButton> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final NotesDesktopPalette p = widget.palette;
+    return Tooltip(
+      message: NotesStrings.desktopMenuUnpin,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (PointerEnterEvent _) => setState(() => _hovered = true),
+        onExit: (PointerExitEvent _) => setState(() => _hovered = false),
+        child: GestureDetector(
+          onTap: widget.onPressed,
+          child: Center(
+            child: Icon(
+              Icons.push_pin_outlined,
+              size: 13,
+              color: _hovered ? p.ink : p.faint,
             ),
           ),
         ),

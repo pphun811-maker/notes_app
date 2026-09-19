@@ -184,5 +184,98 @@ void main() {
       expect(store.isConflictDismissed('a.sync-conflict-1.md'), isTrue,
           reason: 'the current session still honours it');
     });
+
+    // --- pinned notes -------------------------------------------------------
+
+    test('pinning then pinning again takes the pin off', () async {
+      final NotesSettingsStore store = storeFor(tempDir);
+      expect(store.isPinned('欢迎'), isFalse);
+
+      await store.togglePinned('欢迎');
+      expect(store.isPinned('欢迎'), isTrue);
+
+      await store.togglePinned('欢迎');
+      expect(store.isPinned('欢迎'), isFalse,
+          reason: 'the pin is a switch, not a one-way door');
+    });
+
+    test('pins survive a restart, in the order they were pinned', () async {
+      final NotesSettingsStore store = storeFor(tempDir);
+      await store.togglePinned('欢迎');
+      await store.togglePinned('购物清单');
+      await store.togglePinned('想法');
+
+      final NotesSettingsStore reopened = storeFor(tempDir);
+      await reopened.load();
+
+      expect(reopened.pinnedNotes, <String>['欢迎', '购物清单', '想法']);
+      expect(reopened.isPinned('购物清单'), isTrue);
+      expect(reopened.isPinned('别的东西'), isFalse);
+    });
+
+    test('a rename carries the pin to the new title', () async {
+      final NotesSettingsStore store = storeFor(tempDir);
+      await store.togglePinned('旧名字');
+      await store.renamePinned('旧名字', '新名字');
+
+      expect(store.isPinned('新名字'), isTrue);
+      expect(store.isPinned('旧名字'), isFalse,
+          reason: 'a pin kept under the old name would quietly vanish from the list');
+    });
+
+    test('renaming an unpinned note changes nothing', () async {
+      final NotesSettingsStore store = storeFor(tempDir);
+      await store.togglePinned('甲');
+      await store.renamePinned('乙', '丙');
+      expect(store.pinnedNotes, <String>['甲'],
+          reason: 'every rename goes through this, pinned or not');
+    });
+
+    test('a rename keeps the pin where it was in the order', () async {
+      final NotesSettingsStore store = storeFor(tempDir);
+      await store.togglePinned('甲');
+      await store.togglePinned('乙');
+      await store.togglePinned('丙');
+      await store.renamePinned('乙', '乙改');
+      expect(store.pinnedNotes, <String>['甲', '乙改', '丙']);
+    });
+
+    test('saving a font size keeps the pins, and pinning keeps the font size',
+        () async {
+      final NotesSettingsStore store = storeFor(tempDir);
+      await store.togglePinned('欢迎');
+      await store.save(
+        const NotesSettings(fontSize: 20, lineHeight: 1.2, monoFont: true),
+      );
+      await store.dismissConflict('a.sync-conflict-1.md');
+
+      final NotesSettingsStore reopened = storeFor(tempDir);
+      await reopened.load();
+
+      expect(reopened.pinnedNotes, <String>['欢迎']);
+      expect(reopened.value,
+          const NotesSettings(fontSize: 20, lineHeight: 1.2, monoFont: true));
+      expect(reopened.isConflictDismissed('a.sync-conflict-1.md'), isTrue,
+          reason: 'three readers share one file, so none may drop the others');
+    });
+
+    test('a title holding an = or spaces reads back whole', () async {
+      final NotesSettingsStore store = storeFor(tempDir);
+      const String awkward = '购物 = 清单 2026';
+      await store.togglePinned(awkward);
+
+      final NotesSettingsStore reopened = storeFor(tempDir);
+      await reopened.load();
+
+      expect(reopened.pinnedNotes, <String>[awkward],
+          reason: 'only the first = separates the key from the value');
+    });
+
+    test('a damaged file leaves nothing pinned instead of throwing', () async {
+      await file.writeAsString('pinnedNote\nfontSize=oops\n');
+      final NotesSettingsStore store = storeFor(tempDir);
+      await store.load();
+      expect(store.pinnedNotes, isEmpty);
+    });
   });
 }

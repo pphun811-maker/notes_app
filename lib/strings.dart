@@ -139,6 +139,32 @@ abstract final class NotesStrings {
   static const String desktopThemeToDark = '切换到深色';
   static const String desktopThemeToSystem = '跟随系统';
 
+  // --- the desktop note list's right-click menu ------------------------------
+  //
+  // "删除" is not one of these: it is [delete], which the phone's own menus already use. The
+  // confirmation's heading is [confirmDeleteOne] for the same reason - it is the same sentence.
+  static const String desktopMenuOpen = '打开';
+  static const String desktopMenuRename = '重命名';
+  static const String desktopMenuReveal = '在资源管理器中显示';
+  static const String desktopMenuCopyPath = '复制路径';
+  static const String desktopMenuPin = '置顶';
+  static const String desktopMenuUnpin = '取消置顶';
+
+  /// The line under [confirmDeleteOne] on the desktop.
+  ///
+  /// It says "回收站" where the phone's [deleteWarning] says "永久删除", because on Windows the
+  /// note really does go somewhere it can be got back from - and telling the user it cannot be
+  /// undone when it can would be its own kind of wrong.
+  static String desktopDeleteDetail(String title) =>
+      '「$title」会移到回收站，需要的话可以从那里找回来。';
+
+  static String desktopDeletedOne(String title) => '已删除「$title」';
+  static String desktopDeleteFailed(String reason) => '删除失败：$reason';
+  static const String desktopPathCopied = '路径已复制';
+  static const String desktopRevealFailed = '打不开资源管理器';
+  static String desktopPinnedNote(String title) => '已置顶「$title」';
+  static String desktopUnpinnedNote(String title) => '已取消置顶「$title」';
+
   // --- a note that somebody else changed ------------------------------------
   /// Shown in the editor when the file on disk has been changed by something else - Syncthing
   /// bringing the phone's copy over, or another editor - while this window has unsaved text.
