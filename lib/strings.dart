@@ -112,6 +112,14 @@ abstract final class NotesStrings {
   /// list because writing a new note is what the tabs are for.
   static const String desktopNewTab = '新建一篇笔记';
   static const String desktopSearchHint = '搜索笔记';
+
+  /// The one line of syntax shown under the search box while it has the caret.
+  ///
+  /// Short on purpose: it has to fit the sidebar at 11px, and it only has to be enough for the
+  /// user to see that there is something to look up. Full spellings live in `note_search.dart`.
+  static const String desktopSearchSyntax =
+      '-排除 · "整句" · 标题:词 · 之后:2026/9/1';
+
   static const String desktopNoteCountSection = '全部笔记';
   static const String desktopPinnedSection = '已置顶';
 

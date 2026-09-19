@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 import '../design.dart';
 import '../format.dart';
 import '../note_editor_controller.dart';
+import '../note_search.dart';
 import '../notes_store.dart';
 import '../settings.dart';
 import '../strings.dart';
@@ -67,6 +68,7 @@ class _NotesHomePageState extends State<NotesHomePage>
       <String, GlobalKey<EditorPaneState>>{};
 
   final TextEditingController _search = TextEditingController();
+  final FocusNode _searchFocus = FocusNode();
 
   SystemAccent _accent = SystemAccent.fallback;
   List<Note> _notes = <Note>[];
@@ -81,7 +83,20 @@ class _NotesHomePageState extends State<NotesHomePage>
   /// The notes that are open, and which of them is on screen.
   NoteTabs _tabs = const NoteTabs.empty();
   bool _loading = true;
-  String _query = '';
+  /// What is in the search box, parsed.
+  ///
+  /// The parsed form and not the raw string: every read of it is a question about what it asks
+  /// for, and re-parsing on each of those would be re-doing the same work several times a
+  /// build. The raw text is not kept - the field's own controller has it.
+  NoteQuery _parsed = NoteQuery.empty;
+
+  /// The full text of each note, keyed by path - what the search looks through.
+  ///
+  /// Read lazily, only once something is actually being searched for, and stamped with
+  /// [_bodiesStamp] so a note that changed on disk is read again.
+  Map<String, String> _bodies = <String, String>{};
+  String _bodiesStamp = '';
+  bool _bodiesLoading = false;
   String? _error;
   double _sidebarWidth = NotesDesktopMetrics.sidebarDefault;
 
@@ -116,6 +131,9 @@ class _NotesHomePageState extends State<NotesHomePage>
     // when the pixels do not: light → dark while Windows is already dark looks like nothing
     // happened until the icon says otherwise.
     appThemeMode.addListener(_onThemeModeChanged);
+    // The syntax line under the search box comes and goes with the focus, so the page has to
+    // hear about it.
+    _searchFocus.addListener(_onSearchFocusChanged);
     unawaited(_loadAccent());
     unawaited(_loadSettings());
     unawaited(_refresh());
@@ -124,14 +142,20 @@ class _NotesHomePageState extends State<NotesHomePage>
   @override
   void dispose() {
     appThemeMode.removeListener(_onThemeModeChanged);
+    _searchFocus.removeListener(_onSearchFocusChanged);
     _folderDebounce?.cancel();
     unawaited(_watch?.cancel());
     WidgetsBinding.instance.removeObserver(this);
     _search.dispose();
+    _searchFocus.dispose();
     super.dispose();
   }
 
   void _onThemeModeChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void _onSearchFocusChanged() {
     if (mounted) setState(() {});
   }
 
@@ -252,6 +276,8 @@ class _NotesHomePageState extends State<NotesHomePage>
       // Watched from here rather than from `initState` because the folder has to exist before
       // it can be watched, and this is the one place that guarantees it does.
       if (_watch == null) _watchFolder();
+      // A note Syncthing just changed has to be re-read before the search can be trusted again.
+      unawaited(_loadBodies());
     } on FileSystemException catch (error) {
       if (!mounted) return;
       setState(() {
@@ -428,14 +454,76 @@ class _NotesHomePageState extends State<NotesHomePage>
       );
   }
 
-  List<Note> get _visibleNotes {
-    if (_query.isEmpty) return _notes;
-    final String needle = _query.toLowerCase();
-    return _notes
-        .where((Note n) =>
-            n.title.toLowerCase().contains(needle) ||
-            n.preview.toLowerCase().contains(needle))
-        .toList(growable: false);
+  /// The notes the search found, with the line each one was found on.
+  ///
+  /// A bare word is looked for in the title *and* in every line of the body, which is the whole
+  /// difference from what this used to do: it could only see the note's first line, so a word
+  /// further down was invisible. See `note_search.dart` for the little bit of syntax on top.
+  ///
+  /// Recomputed on every build rather than cached. It is a substring scan over the notes in
+  /// memory, and the alternative - a cache with its own invalidation rules - is more places for
+  /// the list to disagree with what is on disk.
+  List<_Hit> get _hits {
+    if (_parsed.isEmpty) {
+      return _notes
+          .map((Note n) => _Hit(n, null))
+          .toList(growable: false);
+    }
+    // Before the bodies have been read - and for a query that only asks about dates - the
+    // note's first line is all there is to go on. It is a moment, not a state: the read is
+    // started the instant a query arrives.
+    final bool canSearchBody = _parsed.looksAtText;
+    final List<_Hit> found = <_Hit>[];
+    for (final Note note in _notes) {
+      final String body = canSearchBody
+          ? (_bodies[note.file.path] ?? note.preview)
+          : '';
+      final NoteMatch? match = _parsed.match(
+        title: note.title,
+        body: body,
+        modified: note.modified,
+      );
+      if (match != null) found.add(_Hit(note, match.snippet));
+    }
+    return found;
+  }
+
+  /// Reads the notes' bodies, when the search is going to need them.
+  ///
+  /// Only then: the list itself never needs a note's text - a row shows its first line, and the
+  /// editor reads the file for itself. The stamp is the notes' own paths and times, so a note
+  /// that changed on disk - this app, another editor, Syncthing - is read again.
+  Future<void> _loadBodies() async {
+    if (_bodiesLoading || !_parsed.looksAtText) return;
+    final String stamp = _stampOf(_notes);
+    if (stamp == _bodiesStamp && _bodies.length == _notes.length) return;
+
+    _bodiesLoading = true;
+    final Map<String, String> read = <String, String>{};
+    for (final Note note in _notes) {
+      try {
+        read[note.file.path] = await _store.read(note.file);
+      } on FileSystemException {
+        // Gone, or not readable. It simply will not be found by a body search.
+        read[note.file.path] = '';
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      _bodies = read;
+      _bodiesStamp = stamp;
+      _bodiesLoading = false;
+    });
+  }
+
+  static String _stampOf(List<Note> notes) => notes
+      .map((Note n) => '${n.file.path}|${n.modified.microsecondsSinceEpoch}')
+      .join('\n');
+
+  /// The search box changed: parse it, and make sure the bodies are there to search.
+  void _onQueryChanged(String value) {
+    setState(() => _parsed = NoteQuery.parse(value));
+    unawaited(_loadBodies());
   }
 
   @override
@@ -808,8 +896,8 @@ class _NotesHomePageState extends State<NotesHomePage>
   // --- the sidebar ---------------------------------------------------------
 
   Widget _sidebar(NotesDesktopPalette p) {
-    final List<Note> notes = _visibleNotes;
-    final List<Object> rows = _sidebarRows(notes);
+    final List<_Hit> hits = _hits;
+    final List<Object> rows = _sidebarRows(hits);
     return ColoredBox(
       color: p.page,
       child: Column(
@@ -852,9 +940,20 @@ class _NotesHomePageState extends State<NotesHomePage>
             child: _SearchField(
               palette: p,
               controller: _search,
-              onChanged: (String value) => setState(() => _query = value),
+              focusNode: _searchFocus,
+              onChanged: _onQueryChanged,
             ),
           ),
+          // The syntax only while the box has the caret. It is what makes the operators
+          // findable at all, and it stays out of the way the rest of the time.
+          if (_searchFocus.hasFocus)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(22, 8, 22, 0),
+              child: Text(
+                NotesStrings.desktopSearchSyntax,
+                style: TextStyle(fontSize: 11, color: p.faint),
+              ),
+            ),
           const SizedBox(height: 14),
           Expanded(
             child: ListView.builder(
@@ -865,9 +964,12 @@ class _NotesHomePageState extends State<NotesHomePage>
                 if (entry is _SectionHeading) {
                   return _sectionLabel(p, entry.text, top: entry.topGap);
                 }
-                final Note note = entry as Note;
+                final _Hit hit = entry as _Hit;
+                final Note note = hit.note;
                 return _NoteRow(
                   note: note,
+                  // What the search found, when it found it somewhere other than the title.
+                  snippet: hit.snippet,
                   palette: p,
                   pinned: appSettings.isPinned(note.title),
                   // The row marks the note being edited, not every note that happens to be
@@ -881,14 +983,26 @@ class _NotesHomePageState extends State<NotesHomePage>
               },
             ),
           ),
-          if (notes.isEmpty && !_loading)
+          if (hits.isEmpty && !_loading)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 8),
-              child: Text(
-                _query.isEmpty
-                    ? NotesStrings.emptyTitle
-                    : NotesStrings.searchEmptyTitle,
-                style: TextStyle(fontSize: 13, color: p.faint),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    _parsed.isEmpty
+                        ? NotesStrings.emptyTitle
+                        : NotesStrings.searchEmptyTitle,
+                    style: TextStyle(fontSize: 13, color: p.faint),
+                  ),
+                  if (!_parsed.isEmpty) ...<Widget>[
+                    const SizedBox(height: 4),
+                    Text(
+                      NotesStrings.searchEmptyDetail,
+                      style: TextStyle(fontSize: 12, color: p.faint),
+                    ),
+                  ],
+                ],
               ),
             ),
           Padding(
@@ -922,11 +1036,11 @@ class _NotesHomePageState extends State<NotesHomePage>
   ///
   /// The search narrows both sections rather than flattening them, so pinning keeps meaning the
   /// same thing while a search is on.
-  List<Object> _sidebarRows(List<Note> notes) {
-    final List<Note> pinned = <Note>[];
-    final List<Note> rest = <Note>[];
-    for (final Note note in notes) {
-      (appSettings.isPinned(note.title) ? pinned : rest).add(note);
+  List<Object> _sidebarRows(List<_Hit> hits) {
+    final List<_Hit> pinned = <_Hit>[];
+    final List<_Hit> rest = <_Hit>[];
+    for (final _Hit hit in hits) {
+      (appSettings.isPinned(hit.note.title) ? pinned : rest).add(hit);
     }
     return <Object>[
       if (pinned.isNotEmpty) ...<Object>[
@@ -1491,11 +1605,13 @@ class _SearchField extends StatelessWidget {
   const _SearchField({
     required this.palette,
     required this.controller,
+    required this.focusNode,
     required this.onChanged,
   });
 
   final NotesDesktopPalette palette;
   final TextEditingController controller;
+  final FocusNode focusNode;
   final ValueChanged<String> onChanged;
 
   @override
@@ -1516,6 +1632,7 @@ class _SearchField extends StatelessWidget {
           Expanded(
             child: TextField(
               controller: controller,
+              focusNode: focusNode,
               onChanged: onChanged,
               style: TextStyle(fontSize: 13, color: p.ink),
               cursorColor: p.accent,
@@ -1547,6 +1664,20 @@ class _SectionHeading {
   final double topGap;
 }
 
+/// One note the list is showing, and the line the search found it on.
+///
+/// The snippet travels with the note rather than being looked up again by the row: a row that
+/// ran the search itself would run it once per note per build, and could disagree with the
+/// filtering that let the note into the list at all.
+class _Hit {
+  const _Hit(this.note, this.snippet);
+
+  final Note note;
+
+  /// The matching line, or null when the title is what matched - or when there is no search on.
+  final String? snippet;
+}
+
 /// One note in the sidebar: icon, title, preview, and the date on the right.
 ///
 /// A pinned note also carries the pin on the second line, at the right-hand end - measured off
@@ -1555,6 +1686,7 @@ class _SectionHeading {
 class _NoteRow extends StatefulWidget {
   const _NoteRow({
     required this.note,
+    required this.snippet,
     required this.palette,
     required this.selected,
     required this.pinned,
@@ -1564,6 +1696,10 @@ class _NoteRow extends StatefulWidget {
   });
 
   final Note note;
+
+  /// The line the search found, shown in place of the note's first line. Null when there is no
+  /// search on, or when the title is what matched.
+  final String? snippet;
   final NotesDesktopPalette palette;
   final bool selected;
   final bool pinned;
@@ -1639,12 +1775,17 @@ class _NoteRowState extends State<_NoteRow> {
                   right: widget.pinned ? 38 : 52,
                   top: 30,
                   child: Text(
-                    // Just the note's first line. It used to be `formatNoteSubtitle`, which
-                    // prefixes the date as well - but this row already carries the date at its
-                    // right-hand end, so the two together printed the same date twice.
-                    note.preview.isEmpty
-                        ? NotesStrings.desktopEmptyNote
-                        : note.preview,
+                    // What the search found, when it found it somewhere other than the title:
+                    // showing the note's first line while the word being looked for sits five
+                    // lines further down is how a result looks like a mistake.
+                    //
+                    // Otherwise the note's own first line. It used to be `formatNoteSubtitle`,
+                    // which prefixes the date as well - but this row already carries the date at
+                    // its right-hand end, so the two together printed the same date twice.
+                    widget.snippet ??
+                        (note.preview.isEmpty
+                            ? NotesStrings.desktopEmptyNote
+                            : note.preview),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(fontSize: 12, color: p.sub),
