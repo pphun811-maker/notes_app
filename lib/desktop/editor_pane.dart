@@ -377,6 +377,7 @@ class EditorPaneState extends State<EditorPane> {
 
   Widget _titleField(NotesDesktopPalette p) {
     return TextField(
+      key: const ValueKey<String>('note-title-field'),
       controller: _title,
       focusNode: _titleFocus,
       onSubmitted: (String _) => _bodyFocus.requestFocus(),
@@ -398,6 +399,7 @@ class EditorPaneState extends State<EditorPane> {
 
   Widget _bodyField(NotesDesktopPalette p) {
     return TextField(
+      key: const ValueKey<String>('note-body-field'),
       controller: _body,
       focusNode: _bodyFocus,
       onChanged: _editor.onChanged,

@@ -407,6 +407,56 @@ class _NotesHomePageState extends State<NotesHomePage>
     _paneKeys[file.path]?.currentState?.openFind();
   }
 
+  /// Puts the caret in the title of the note on screen, with its name selected. F2.
+  ///
+  /// No frame has to go by first, the way the note list's "重命名" needs one: that one can be
+  /// asked for a note that is not open yet, and the pane does not exist until the build that
+  /// opening it triggers. Here the note is the one on screen, so its pane is already built.
+  void _renameCurrentNote() {
+    final File? file = _tabs.current;
+    if (file == null) return;
+    _paneKeys[file.path]?.currentState?.startRename();
+  }
+
+  /// The keys the page answers itself, rather than through a binding.
+  ///
+  /// Delete is the reason this exists. [`CallbackShortcuts`] answers "handled" the moment a
+  /// binding matches, whether or not the callback went on to do anything - so a Delete binding
+  /// there would swallow the key inside every text field on the page and stop the character
+  /// under the caret from being deleted. Answering "ignored" instead lets the event carry on up
+  /// to the field's own editing shortcuts, which is where that key belongs.
+  ///
+  /// Only the press is acted on, not the repeats: holding the key down over a note would
+  /// otherwise stack up one confirmation dialog after another.
+  KeyEventResult _onKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    if (event.logicalKey != LogicalKeyboardKey.delete) {
+      return KeyEventResult.ignored;
+    }
+    if (_keyboardIsInAField()) return KeyEventResult.ignored;
+    _deleteCurrentNote();
+    return KeyEventResult.handled;
+  }
+
+  /// Deletes the note on screen, after asking. Delete.
+  void _deleteCurrentNote() {
+    final File? file = _tabs.current;
+    if (file == null) return;
+    unawaited(_confirmDelete(_noteFor(file)));
+  }
+
+  /// Whether the keyboard is going into a text field, which then owns the key.
+  ///
+  /// The focus node of a field is attached to a [Focus] the field itself builds, so the field is
+  /// an ancestor of the focused widget. The second test covers the widget that holds the focus
+  /// directly, which is how the mobile interface's fields come out.
+  static bool _keyboardIsInAField() {
+    final BuildContext? focus = FocusManager.instance.primaryFocus?.context;
+    if (focus == null) return false;
+    return focus.widget is EditableText ||
+        focus.findAncestorWidgetOfExactType<EditableText>() != null;
+  }
+
   /// Replaces the tab set, and drops the editors of any tab that has gone.
   void _setTabs(NoteTabs next) {
     if (next == _tabs) return;
@@ -553,10 +603,15 @@ class _NotesHomePageState extends State<NotesHomePage>
         // is open, and the shortcut does nothing rather than opening an empty bar.
         const SingleActivator(LogicalKeyboardKey.keyF, control: true):
             _openFind,
+        // Renaming the note on screen. F2 is the key every file list uses for this, and here the
+        // title field *is* the file name, so the key only has to put the caret in it.
+        const SingleActivator(LogicalKeyboardKey.f2): _renameCurrentNote,
+        // Delete is deliberately *not* in here - see [_onKeyEvent].
       },
       child: Focus(
         // Without something holding the focus the page never sees a key at all.
         autofocus: true,
+        onKeyEvent: _onKeyEvent,
         child: Theme(
       data: Theme.of(context).copyWith(
         colorScheme: ColorScheme.fromSeed(
@@ -799,6 +854,10 @@ class _NotesHomePageState extends State<NotesHomePage>
                         for (int i = 0; i < _tabs.length; i++) ...<Widget>[
                           if (i > 0) const SizedBox(width: gap),
                           _Tab(
+                            // Named by path, so a test can point at one tab rather than at
+                            // "the n-th thing showing this title" - the note list shows the same
+                            // string, and so does the editor's title field.
+                            key: ValueKey<String>('note-tab-${_tabs.files[i].path}'),
                             width: tabWidth,
                             title: Note.fileNameWithoutExtension(_tabs.files[i]),
                             palette: p,
@@ -809,6 +868,7 @@ class _NotesHomePageState extends State<NotesHomePage>
                                 false,
                             onSelect: () => _setTabs(_tabs.select(i)),
                             onClose: () => unawaited(_closeTab(i)),
+                            onMenu: (Offset at) => unawaited(_showTabMenu(i, at)),
                           ),
                         ],
                         // Follows the last tab, and scrolls with them: the strip is one row, and
@@ -1320,6 +1380,65 @@ class _NotesHomePageState extends State<NotesHomePage>
         ],
       ),
     );
+  }
+
+  // --- what a tab's right-click menu does -----------------------------------
+
+  /// The tab strip's context menu.
+  ///
+  /// A note that is already open has nothing left to "open", and the pin, the path on the
+  /// clipboard and the recycle bin are things the note list already offers for the same note, so
+  /// this is the three that are about the tab rather than about the note.
+  Future<void> _showTabMenu(int index, Offset at) async {
+    if (index < 0 || index >= _tabs.length) return;
+    final NotesDesktopPalette p = _paletteFor(context);
+    final File file = _tabs.files[index];
+    const String close = 'close';
+    const String closeOthers = 'closeOthers';
+    const String reveal = 'reveal';
+
+    final String? choice = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(at.dx, at.dy, at.dx, at.dy),
+      color: p.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(NotesDesktopMetrics.radiusControl),
+      ),
+      items: <PopupMenuEntry<String>>[
+        _menuItem(p, close, Icons.close, NotesStrings.desktopMenuCloseTab),
+        _menuItem(p, closeOthers, Icons.layers_clear,
+            NotesStrings.desktopMenuCloseOthers),
+        const PopupMenuDivider(),
+        _menuItem(p, reveal, Icons.folder_open, NotesStrings.desktopMenuReveal),
+      ],
+    );
+    if (choice == null || !mounted) return;
+
+    switch (choice) {
+      case close:
+        await _closeTab(index);
+      case closeOthers:
+        await _closeOthers(index);
+      case reveal:
+        await _revealInExplorer(_noteFor(file));
+    }
+  }
+
+  /// Closes every tab but the one at [index], writing each of them first.
+  ///
+  /// The writes are awaited for the same reason [_closeTab] awaits its one: closing a tab
+  /// destroys its editor, and a write that has not finished by then is text nobody can get back.
+  Future<void> _closeOthers(int index) async {
+    if (index < 0 || index >= _tabs.length) return;
+    final File keep = _tabs.files[index];
+    for (final File file in _tabs.files) {
+      if (file.path == keep.path) continue;
+      await _paneKeys[file.path]?.currentState?.flush();
+      if (!mounted) return;
+    }
+    // One tab is what is left, and it is the one the menu was opened on.
+    _setTabs(const NoteTabs.empty().open(keep));
+    _scrollTabIntoView();
   }
 
   // --- conflict copies ------------------------------------------------------
@@ -1876,6 +1995,7 @@ class _PinButtonState extends State<_PinButton> {
 /// below instead of resting a rectangle on a line.
 class _Tab extends StatefulWidget {
   const _Tab({
+    super.key,
     required this.width,
     required this.title,
     required this.palette,
@@ -1883,6 +2003,7 @@ class _Tab extends StatefulWidget {
     required this.dirty,
     required this.onSelect,
     required this.onClose,
+    required this.onMenu,
   });
 
   /// How wide this tab is drawn. Decided by the strip, which narrows them as more notes are
@@ -1895,6 +2016,9 @@ class _Tab extends StatefulWidget {
   final bool dirty;
   final VoidCallback onSelect;
   final VoidCallback onClose;
+
+  /// A right-click on the tab, at a point in global coordinates - which is where its menu opens.
+  final void Function(Offset at) onMenu;
 
   @override
   State<_Tab> createState() => _TabState();
@@ -1922,6 +2046,8 @@ class _TabState extends State<_Tab> {
           },
           child: GestureDetector(
             onTap: widget.onSelect,
+            onSecondaryTapDown: (TapDownDetails details) =>
+                widget.onMenu(details.globalPosition),
             child: CustomPaint(
             painter: _TabPainter(
               fill: selected

@@ -173,6 +173,14 @@ abstract final class NotesStrings {
   static String desktopPinnedNote(String title) => '已置顶「$title」';
   static String desktopUnpinnedNote(String title) => '已取消置顶「$title」';
 
+  // --- what a tab's right-click menu offers ---------------------------------
+  //
+  // Only the three things that need a tab to exist. A tab is a note that is already open, so
+  // "打开" has nothing left to do; the pin, the path on the clipboard and the recycle bin are the
+  // note list's business and are offered there.
+  static const String desktopMenuCloseTab = '关闭';
+  static const String desktopMenuCloseOthers = '关闭其它';
+
   // --- the desktop's own source view and conflict notice --------------------
 
   /// The body switch at the right of the status line. The label says what pressing it *does*,

@@ -7,8 +7,77 @@
 #include "flutter_window.h"
 #include "utils.h"
 
+namespace {
+
+// The window class the runner registers (see win32_window.cpp). Spelled out a second time
+// because that file keeps the name to itself; if it is ever renamed, this is the place to
+// follow.
+constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
+
+// Names the flag that says "a copy is already running".
+//
+// A named mutex lives in the kernel rather than in a file, so every process on the machine can
+// ask whether the name is taken, and the kernel drops it the moment the last handle closes.
+// That last part is what makes it the right tool here: a copy that was killed instead of closed
+// leaves nothing behind, so the next launch starts normally.
+//
+// `Local\` scopes the name to this logged-in session. `Global\` would not: creating objects in
+// the global namespace needs a privilege ordinary accounts do not have, so it would fail to
+// start the app at all for them.
+constexpr const wchar_t kSingleInstanceMutexName[] =
+    L"Local\\Notes_SingleInstance";
+
+// Shows and focuses the copy of the window that is already open.
+//
+// `SetForegroundWindow` is refused unless Windows agrees that the caller may take the
+// foreground, and a process that was just started is not always on that list - the click that
+// started it went to the shell. Attaching to the current foreground thread's input queue is
+// the documented way round it: while the two threads are attached they share the right to set
+// the foreground window. Bringing the window to the top of the Z order is the last resort, and
+// still activates it.
+void BringToFront(HWND window) {
+  if (::IsIconic(window)) {
+    ::ShowWindow(window, SW_RESTORE);
+  }
+  if (::SetForegroundWindow(window)) {
+    return;
+  }
+
+  const HWND foreground = ::GetForegroundWindow();
+  const DWORD foreground_thread =
+      foreground ? ::GetWindowThreadProcessId(foreground, nullptr) : 0;
+  const DWORD this_thread = ::GetCurrentThreadId();
+  if (foreground_thread != 0 && foreground_thread != this_thread &&
+      ::AttachThreadInput(this_thread, foreground_thread, TRUE)) {
+    ::SetForegroundWindow(window);
+    ::AttachThreadInput(this_thread, foreground_thread, FALSE);
+    return;
+  }
+
+  ::BringWindowToTop(window);
+}
+
+}  // namespace
+
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command) {
+  // Two copies of Notes must not run at once.
+  //
+  // Each copy holds its own picture of the note folder in memory and writes whole files back,
+  // so two of them silently overwrite each other's edits - the same failure HANDOFF_PHASE7
+  // section 2.7 chased down inside a single process. Double-clicking the icon twice is enough
+  // to make it happen, so the second copy hands the launch over to the first and leaves.
+  HANDLE instance_mutex =
+      ::CreateMutexW(nullptr, FALSE, kSingleInstanceMutexName);
+  if (instance_mutex != nullptr && ::GetLastError() == ERROR_ALREADY_EXISTS) {
+    ::CloseHandle(instance_mutex);
+    HWND existing = ::FindWindowW(kWindowClassName, nullptr);
+    if (existing != nullptr) {
+      BringToFront(existing);
+    }
+    return EXIT_SUCCESS;
+  }
+
   // Attach to console when present (e.g., 'flutter run') or create a
   // new console when running with a debugger.
   if (!::AttachConsole(ATTACH_PARENT_PROCESS) && ::IsDebuggerPresent()) {
@@ -63,6 +132,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     ::DispatchMessage(&msg);
   }
 
+  if (instance_mutex != nullptr) {
+    ::CloseHandle(instance_mutex);
+  }
   ::CoUninitialize();
   return EXIT_SUCCESS;
 }
