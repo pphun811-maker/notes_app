@@ -35,6 +35,7 @@ class EditorPane extends StatefulWidget {
     required this.palette,
     required this.onRenamed,
     required this.onDirtyChanged,
+    required this.onRefresh,
   });
 
   final NotesStore store;
@@ -51,6 +52,10 @@ class EditorPane extends StatefulWidget {
 
   /// Called whenever there is something unsaved, so the title bar can say so.
   final ValueChanged<bool> onDirtyChanged;
+
+  /// Called by the status line's 刷新 button. The page answers it, because only the page can
+  /// say what came of it - see `_refreshOpenNote`.
+  final VoidCallback onRefresh;
 
   @override
   State<EditorPane> createState() => EditorPaneState();
@@ -137,6 +142,19 @@ class EditorPaneState extends State<EditorPane> {
   /// Writes whatever is pending. Called before the pane is replaced, and before the window
   /// closes, so a switch of notes can never lose the last keystrokes.
   Future<void> flush() => _editor.flush();
+
+  /// Asks the folder whether this note has a newer version, and says what came of it.
+  ///
+  /// The same call the folder watcher already makes on its own, offered to the user as a button:
+  /// the watcher can miss a change (a note that arrived while the window was busy, a sync that
+  /// landed after the last scan) and there is otherwise no way to ask again. Reloading, and
+  /// stopping to ask when there is unsaved text here, are both the controller's rules - the
+  /// button only decides when to ask.
+  ///
+  /// It goes through this pane's own [applyExternalChange] rather than the controller's: the
+  /// field the note is drawn from only ever holds what [_syncFields] put there, so a reload that
+  /// stopped at the controller would leave the newer text off the screen.
+  Future<ExternalChange> refreshFromDisk() => applyExternalChange();
 
   /// Puts the caret in the title field with the whole name selected.
   ///
@@ -477,6 +495,16 @@ class EditorPaneState extends State<EditorPane> {
               ),
             ),
             const SizedBox(width: 12),
+            // The one control on this line that is about the note's *file* rather than about
+            // how it is drawn: it asks the folder again, in case the sync has just brought
+            // something over. First of the three so the two view switches stay together.
+            _StatusToggle(
+              palette: p,
+              label: NotesStrings.desktopRefresh,
+              tooltip: NotesStrings.desktopRefreshTip,
+              onPressed: widget.onRefresh,
+            ),
+            const SizedBox(width: 6),
             // Ctrl+F is the fast way in, but nothing on screen announces it; this is how the
             // feature is found at all.
             _StatusToggle(

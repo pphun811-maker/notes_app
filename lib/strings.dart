@@ -190,6 +190,21 @@ abstract final class NotesStrings {
   static const String desktopViewSourceTip = '看 Markdown 原文';
   static const String desktopViewRenderedTip = '看渲染后的样子';
 
+  // --- reading the note again, on demand (the 刷新 button) -------------------
+  //
+  // The app writes; Syncthing carries. This is the other direction: "the other machine has
+  // written this, read it again now". Which of the two answers comes back is the point of the
+  // button - "nothing newer on disk" is how the user finds out that the sync has not arrived
+  // yet, and without it a button that did nothing and a note that was already current would
+  // look exactly the same.
+  static const String desktopRefresh = '刷新';
+  static const String desktopRefreshTip = '再看看磁盘上有没有新版本（同步到了没有）';
+  static const String mobileRefreshDisk = '再看一眼磁盘上的版本';
+  static const String refreshedNewest = '已读入磁盘上的最新版本';
+  static const String refreshedNothingNew = '磁盘上还是这一版——同步可能还没传过来';
+  static const String refreshedButUnsaved = '磁盘上有新版本，但这里也有没保存的字：先选留哪份';
+  static const String refreshWaitForSave = '刚敲的字还没存完，等一下再刷新';
+
   // --- finding inside the open note (Ctrl+F) --------------------------------
   static const String findHint = '在这篇里找…';
   static const String findNoMatch = '没找到';

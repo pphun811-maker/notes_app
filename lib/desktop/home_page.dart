@@ -353,6 +353,29 @@ class _NotesHomePageState extends State<NotesHomePage>
     _toast(NotesStrings.externalChangeReloaded);
   }
 
+  /// Reads the note on screen again, because the user pressed 刷新.
+  ///
+  /// Deliberately the same call [_checkOpenNote] makes for the folder watcher, so the two can
+  /// never disagree about what "somebody else changed this" means. Which of the three answers
+  /// comes back is what the user is told, and the middle one is the useful one: "nothing newer
+  /// on disk" is how they find out that the sync has not arrived yet, which otherwise looks
+  /// exactly like a button that does nothing.
+  Future<void> _refreshOpenNote(File file) async {
+    final EditorPaneState? pane = _paneKeys[file.path]?.currentState;
+    if (pane == null) return;
+    final ExternalChange change = await pane.refreshFromDisk();
+    if (!mounted) return;
+    switch (change) {
+      case ExternalChange.reloaded:
+        _toast(NotesStrings.refreshedNewest);
+      case ExternalChange.none:
+        _toast(NotesStrings.refreshedNothingNew);
+      case ExternalChange.conflict:
+        // The banner above the editor is the answer to this one, and it is already up.
+        _toast(NotesStrings.refreshedButUnsaved);
+    }
+  }
+
   Future<void> _newNote() async {
     try {
       final File file = await _store.createNote();
@@ -1185,6 +1208,7 @@ class _NotesHomePageState extends State<NotesHomePage>
             // Any change to what is unsaved redraws the strip: the dot on the tab is the only
             // sign the user gets that this note has something still to write.
             onDirtyChanged: (bool _) => setState(() {}),
+            onRefresh: () => unawaited(_refreshOpenNote(file)),
           ),
       ],
     );

@@ -169,7 +169,44 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden) {
       unawaited(_editor.flush());
+      return;
     }
+    // Coming back to the app is the moment the other machine's work is most likely to have
+    // landed, and the note on screen is otherwise never looked at again: this page reads the
+    // file once, when it opens.
+    if (state == AppLifecycleState.resumed) unawaited(_takeNewerFromDisk());
+  }
+
+  /// Takes the file's version when it is newer than this one and nothing here is unsaved.
+  ///
+  /// The rule the desktop's folder watcher uses, asked again on the way back into the app. With
+  /// anything unsaved it does nothing at all: that text is the user's, and this page has no
+  /// banner to ask them which of the two they want - so the only safe answer is to leave both
+  /// sides alone.
+  Future<void> _takeNewerFromDisk() async {
+    if (_editor.hasUnsavedChanges) return;
+    if (await _editor.applyExternalChange() != ExternalChange.reloaded) return;
+    if (!mounted) return;
+    _syncField();
+    _syncTitleField();
+  }
+
+  /// Reads this note again, because the user asked from the ⋯ menu.
+  ///
+  /// Says which of the two happened, because that is the whole point of asking by hand: "the
+  /// folder still holds this version" is how the user finds out that the sync has not delivered
+  /// yet, which otherwise looks exactly like a button that does nothing.
+  Future<void> _refreshFromDisk() async {
+    if (_editor.hasUnsavedChanges) {
+      _toast(NotesStrings.refreshWaitForSave);
+      return;
+    }
+    final String before = _editor.text;
+    await _reload();
+    if (!mounted) return;
+    _toast(_editor.text == before
+        ? NotesStrings.refreshedNothingNew
+        : NotesStrings.refreshedNewest);
   }
 
   Future<void> _reload() async {
@@ -371,6 +408,13 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
         label: NotesStrings.copyAsMarkdown,
         icon: Icons.code,
       ),
+      // A note that is open here is never looked at again on its own - see [_takeNewerFromDisk]
+      // - so this is how a note edited on the computer catches up without leaving the page.
+      AppMenuItem(
+        value: 'refresh',
+        label: NotesStrings.mobileRefreshDisk,
+        icon: Icons.refresh,
+      ),
     ]);
     if (choice == 'plain') {
       await Clipboard.setData(
@@ -381,6 +425,9 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
     if (choice == 'markdown') {
       await Clipboard.setData(ClipboardData(text: _field.text));
       _toast(NotesStrings.copiedMarkdown);
+    }
+    if (choice == 'refresh') {
+      await _refreshFromDisk();
     }
   }
 
